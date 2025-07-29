@@ -1,0 +1,96 @@
+@startuml
+skinparam monochrome true
+skinparam linetype ortho
+
+entity "Usuario" {
+  *id_usuario : INTEGER
+  --
+  nombre : TEXT
+  email : TEXT <<unique>>
+  contraseña : TEXT
+  rol : TEXT
+}
+
+entity "Protocolo" {
+  *id_protocolo : INTEGER
+  --
+  nombre : TEXT <<unique>>
+  descripcion : TEXT
+}
+
+entity "Criticidad" {
+  *id_criticidad : INTEGER
+  --
+  nivel : TEXT <<unique>>
+  descripcion : TEXT
+}
+
+entity "Estado" {
+  *id_estado : INTEGER
+  --
+  nombre : TEXT <<unique>>
+  descripcion : TEXT
+}
+
+entity "Vulnerabilidad" {
+  *id_vulnerabilidad : INTEGER
+  --
+  id_protocolo : INTEGER
+  id_criticidad : INTEGER
+  id_estado : INTEGER
+  descripcion : TEXT
+  fecha_identificacion : DATE
+  responsable : TEXT
+  id_usuario_asignado : INTEGER
+}
+
+entity "Seguimiento" {
+  *id_seguimiento : INTEGER
+  --
+  id_vulnerabilidad : INTEGER
+  fecha_accion : DATE
+  accion : TEXT
+  id_usuario : INTEGER
+  comentarios : TEXT
+}
+
+entity "Reporte" {
+  *id_reporte : INTEGER
+  --
+  id_vulnerabilidad : INTEGER
+  fecha_generacion : DATE
+  formato : TEXT
+  contenido : TEXT
+}
+
+entity "BaseConocimiento" {
+  *id_conocimiento : INTEGER
+  --
+  id_vulnerabilidad : INTEGER
+  id_protocolo : INTEGER
+  procedimiento : TEXT
+  referencia_cve : TEXT
+  referencia_nist : TEXT
+}
+
+entity "Metrica" {
+  *id_metrica : INTEGER
+  --
+  id_vulnerabilidad : INTEGER
+  nombre_metrica : TEXT
+  valor : REAL
+  fecha_actualizacion : DATE
+}
+
+"Vulnerabilidad" ||--o{ "Protocolo" : "id_protocolo"
+"Vulnerabilidad" ||--o{ "Criticidad" : "id_criticidad"
+"Vulnerabilidad" ||--o{ "Estado" : "id_estado"
+"Vulnerabilidad" ||--o{ "Usuario" : "id_usuario_asignado"
+"Seguimiento" ||--o{ "Vulnerabilidad" : "id_vulnerabilidad"
+"Seguimiento" ||--o{ "Usuario" : "id_usuario"
+"Reporte" ||--o{ "Vulnerabilidad" : "id_vulnerabilidad"
+"BaseConocimiento" ||--o{ "Vulnerabilidad" : "id_vulnerabilidad"
+"BaseConocimiento" ||--o{ "Protocolo" : "id_protocolo"
+"Metrica" ||--o{ "Vulnerabilidad" : "id_vulnerabilidad"
+
+@enduml
