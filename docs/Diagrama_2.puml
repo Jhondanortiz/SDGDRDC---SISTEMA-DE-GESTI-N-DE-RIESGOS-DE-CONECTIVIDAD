@@ -1,0 +1,54 @@
+@startuml
+skinparam class {
+  BackgroundColor LightBlue
+  BorderColor Black
+  ArrowColor Black
+}
+
+class Usuario {
+  -id_usuario : Integer
+  -nombre : Text
+  -email : Text
+  -contraseña : Text
+  -rol : Text
+}
+
+class Protocolo {
+  -id_protocolo : Integer
+  -nombre : Text
+  -descripcion : Text
+}
+
+class Criticidad {
+  -id_criticidad : Integer
+  -nivel : Text
+  -descripcion : Text
+}
+
+class Estado {
+  -id_estado : Integer
+  -nombre : Text
+  -descripcion : Text
+}
+
+class Vulnerabilidad {
+  -id_vulnerabilidad : Integer
+  -id_protocolo : Integer
+  -id_criticidad : Integer
+  -id_estado : Integer
+  -descripcion : Text
+  -fecha_identificacion : Date
+  -responsable : Text
+  -id_usuario_asignado : Integer
+}
+
+Usuario "0..1" -- "0..*" Vulnerabilidad : asignado_a
+Protocolo "1" -- "1" Vulnerabilidad : usa
+Criticidad "1" -- "1" Vulnerabilidad : tiene
+Estado "1" -- "1" Vulnerabilidad : esta_en
+
+note right of Vulnerabilidad
+  Representa una vulnerabilidad en el sistema.
+  Relaciones con otras entidades via claves foráneas.
+end note
+@enduml
