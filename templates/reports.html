@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SDGDRDC - Reportes</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1>📋 SDGDRDC - Reportes de Vulnerabilidades</h1>
+        
+        <div id="alertContainer"></div>
+        
+        <div id="reportContainer">
+            <div class="loading" id="loading">Cargando reportes...</div>
+            <table id="reportTable" style="display: none;">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Protocolo</th>
+                        <th>Criticidad</th>
+                        <th>Estado</th>
+                        <th>Descripción</th>
+                        <th>Fecha de Identificación</th>
+                        <th>Responsable</th>
+                        <th>Usuario Asignado</th>
+                    </tr>
+                </thead>
+                <tbody id="reportBody"></tbody>
+            </table>
+            <button id="generateReportBtn" class="btn-small btn-warning" onclick="generateReport()">📄 Generar Reporte</button>
+        </div>
+    </div>
+
+    <script>
+        // Verificar autenticación
+        let token = localStorage.getItem('token');
+        if (!token) {
+            alert('Por favor, inicie sesión primero.');
+            window.location.href = '/templates/index.html'; // Ajusta la ruta según tu endpoint de login
+        }
+
+        // Función para mostrar alertas
+        function showAlert(message, type = 'success') {
+            const alertContainer = document.getElementById('alertContainer');
+            const alertClass = type === 'success' ? 'alert-success' : 'alert-danger';
+            alertContainer.innerHTML = `<div class="alert ${alertClass}">${message}</div>`;
+            setTimeout(() => {
+                alertContainer.innerHTML = '';
+            }, 5000);
+        }
+
+        // Función para generar reporte
+        async function generateReport() {
+            const loading = document.getElementById('loading');
+            const table = document.getElementById('reportTable');
+            const tbody = document.getElementById('reportBody');
+
+            loading.style.display = 'block';
+            table.style.display = 'none';
+
+            try {
+                const response = await fetch('/api/vulnerabilidades', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (!response.ok) throw new Error('Error en la respuesta');
+                const vulnerabilities = await response.json();
+
+                tbody.innerHTML = '';
+
+                vulnerabilities.forEach(vuln => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${vuln.id_vulnerabilidad}</td>
+                        <td>${vuln.protocolo_nombre || 'Desconocido'}</td>
+                        <td><span class="criticidad-${vuln.criticidad_nombre.toLowerCase().replace(' ', '-')}">${vuln.criticidad_nombre}</span></td>
+                        <td><span class="estado-${vuln.estado_nombre.toLowerCase().replace(' ', '-')}">${vuln.estado_nombre}</span></td>
+                        <td title="${vuln.descripcion}">${vuln.descripcion.substring(0, 50)}${vuln.descripcion.length > 50 ? '...' : ''}</td>
+                        <td>${vuln.fecha_identificacion}</td>
+                        <td>${vuln.responsable || 'Sin asignar'}</td>
+                        <td>${vuln.usuario_nombre || 'Sin asignar'}</td>
+                    `;
+                    tbody.appendChild(row);
+                });
+
+                loading.style.display = 'none';
+                table.style.display = 'table';
+
+                if (vulnerabilities.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 20px;">No hay vulnerabilidades para reportar</td></tr>';
+                }
+            } catch (error) {
+                console.error('Error generando reporte:', error);
+                loading.style.display = 'none';
+                showAlert('Error al generar el reporte. Verifique su sesión.', 'danger');
+            }
+        }
+
+        // Cargar reporte al iniciar la página
+        document.addEventListener('DOMContentLoaded', function() {
+            generateReport();
+        });
+    </script>
+</body>
+</html>

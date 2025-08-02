@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SDGDRDC - Gestión de Vulnerabilidades</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 SDGDRDC - Gestión de Vulnerabilidades</h1>
+        
+        <div id="alertContainer"></div>
+        
+        <div id="filterContainer">
+            <h2>🔎 Filtros</h2>
+            <div class="form-group" style="display: flex; gap: 15px; flex-wrap: wrap;">
+                <select id="filterProtocol" class="form-control" style="flex: 1;">
+                    <option value="">Todos los Protocolos</option>
+                    <option value="SMB">SMB</option>
+                    <option value="TLS">TLS</option>
+                    <option value="SSL">SSL</option>
+                </select>
+                <select id="filterCriticidad" class="form-control" style="flex: 1;">
+                    <option value="">Todas las Criticidades</option>
+                    <option value="Baja">Baja</option>
+                    <option value="Media">Media</option>
+                    <option value="Alta">Alta</option>
+                    <option value="Crítica">Crítica</option>
+                </select>
+                <select id="filterEstado" class="form-control" style="flex: 1;">
+                    <option value="">Todos los Estados</option>
+                    <option value="Identificada">Identificada</option>
+                    <option value="En análisis">En análisis</option>
+                    <option value="En remediacion">En remediación</option>
+                    <option value="Resuelta">Resuelta</option>
+                    <option value="Cerrada">Cerrada</option>
+                </select>
+                <button id="applyFilterBtn" class="btn-small btn-warning">Aplicar Filtros</button>
+            </div>
+        </div>
+
+        <div id="vulnerabilitiesContainer">
+            <div class="loading" id="loading">Cargando vulnerabilidades...</div>
+            <table id="vulnerabilitiesTable" style="display: none;">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Protocolo</th>
+                        <th>Criticidad</th>
+                        <th>Estado</th>
+                        <th>Descripción</th>
+                        <th>Fecha de Identificación</th>
+                        <th>Responsable</th>
+                        <th>Usuario Asignado</th>
+                        <th>Acciones</th>
+                    </tr>
+                </thead>
+                <tbody id="vulnerabilitiesBody"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        // Verificar autenticación
+        let token = localStorage.getItem('token');
+        if (!token) {
+            alert('Por favor, inicie sesión primero.');
+            window.location.href = '/templates/index.html'; // Ajusta la ruta según tu endpoint de login
+        }
+
+        // Función para mostrar alertas
+        function showAlert(message, type = 'success') {
+            const alertContainer = document.getElementById('alertContainer');
+            const alertClass = type === 'success' ? 'alert-success' : 'alert-danger';
+            alertContainer.innerHTML = `<div class="alert ${alertClass}">${message}</div>`;
+            setTimeout(() => {
+                alertContainer.innerHTML = '';
+            }, 5000);
+        }
+
+        // Función para cargar vulnerabilidades
+        async function loadVulnerabilities(filters = {}) {
+            const loading = document.getElementById('loading');
+            const table = document.getElementById('vulnerabilitiesTable');
+            const tbody = document.getElementById('vulnerabilitiesBody');
+
+            loading.style.display = 'block';
+            table.style.display = 'none';
+
+            try {
+                const response = await fetch('/api/vulnerabilidades', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (!response.ok) throw new Error('Error en la respuesta');
+                let vulnerabilities = await response.json();
+
+                // Aplicar filtros
+                if (filters.protocol) {
+                    vulnerabilities = vulnerabilities.filter(v => v.protocolo_nombre === filters.protocol);
+                }
+                if (filters.criticidad) {
+                    vulnerabilities = vulnerabilities.filter(v => v.criticidad_nombre === filters.criticidad);
+                }
+                if (filters.estado) {
+                    vulnerabilities = vulnerabilities.filter(v => v.estado_nombre === filters.estado);
+                }
+
+                tbody.innerHTML = '';
+
+                vulnerabilities.forEach(vuln => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${vuln.id_vulnerabilidad}</td>
+                        <td>${vuln.protocolo_nombre || 'Desconocido'}</td>
+                        <td><span class="criticidad-${vuln.criticidad_nombre.toLowerCase().replace(' ', '-')}">${vuln.criticidad_nombre}</span></td>
+                        <td><span class="estado-${vuln.estado_nombre.toLowerCase().replace(' ', '-')}">${vuln.estado_nombre}</span></td>
+                        <td title="${vuln.descripcion}">${vuln.descripcion.substring(0, 50)}${vuln.descripcion.length > 50 ? '...' : ''}</td>
+                        <td>${vuln.fecha_identificacion}</td>
+                        <td>${vuln.responsable || 'Sin asignar'}</td>
+                        <td>${vuln.usuario_nombre || 'Sin asignar'}</td>
+                        <td>
+                            <button class="btn-small btn-warning" onclick="editVulnerability(${vuln.id_vulnerabilidad})">✏️ Editar</button>
+                            <button class="btn-small btn-danger" onclick="deleteVulnerability(${vuln.id_vulnerabilidad})">🗑️ Eliminar</button>
+                        </td>
+                    `;
+                    tbody.appendChild(row);
+                });
+
+                loading.style.display = 'none';
+                table.style.display = 'table';
+
+                if (vulnerabilities.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; padding: 20px;">No hay vulnerabilidades que coincidan con los filtros</td></tr>';
+                }
+            } catch (error) {
+                console.error('Error cargando vulnerabilidades:', error);
+                loading.style.display = 'none';
+                showAlert('Error al cargar las vulnerabilidades. Verifique su sesión.', 'danger');
+            }
+        }
+
+        // Función para eliminar vulnerabilidad
+        async function deleteVulnerability(id) {
+            if (confirm('¿Estás seguro de que quieres eliminar esta vulnerabilidad?')) {
+                try {
+                    const response = await fetch(`/api/vulnerabilidades/${id}`, {
+                        method: 'DELETE',
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+
+                    if (response.ok) {
+                        showAlert('Vulnerabilidad eliminada exitosamente');
+                        loadVulnerabilities();
+                    } else {
+                        const error = await response.json();
+                        showAlert(error.error || 'Error al eliminar la vulnerabilidad', 'danger');
+                    }
+                } catch (error) {
+                    console.error('Error:', error);
+                    showAlert('Error al eliminar la vulnerabilidad', 'danger');
+                }
+            }
+        }
+
+        // Función para editar vulnerabilidad (placeholder)
+        function editVulnerability(id) {
+            alert(`Funcionalidad de edición para vulnerabilidad ID: ${id} (pendiente de implementar)`);
+        }
+
+        // Aplicar filtros
+        document.getElementById('applyFilterBtn').addEventListener('click', function() {
+            const filters = {
+                protocol: document.getElementById('filterProtocol').value,
+                criticidad: document.getElementById('filterCriticidad').value,
+                estado: document.getElementById('filterEstado').value
+            };
+            loadVulnerabilities(filters);
+        });
+
+        // Cargar vulnerabilidades al iniciar la página
+        document.addEventListener('DOMContentLoaded', function() {
+            loadVulnerabilities();
+        });
+    </script>
+</body>
+</html>

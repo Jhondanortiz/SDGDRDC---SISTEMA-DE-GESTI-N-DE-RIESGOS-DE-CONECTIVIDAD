@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SDGDRDC - Dashboard</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1>📊 SDGDRDC - Dashboard</h1>
+        
+        <div id="alertContainer"></div>
+        
+        <div class="stats-grid" id="statsGrid">
+            <div class="loading" id="loading">Cargando estadísticas...</div>
+        </div>
+    </div>
+
+    <script>
+        // Verificar autenticación
+        let token = localStorage.getItem('token');
+        if (!token) {
+            alert('Por favor, inicie sesión primero.');
+            window.location.href = '/templates/index.html'; // Ajusta la ruta según tu endpoint de login
+        }
+
+        // Función para mostrar alertas
+        function showAlert(message, type = 'success') {
+            const alertContainer = document.getElementById('alertContainer');
+            const alertClass = type === 'success' ? 'alert-success' : 'alert-danger';
+            alertContainer.innerHTML = `<div class="alert ${alertClass}">${message}</div>`;
+            setTimeout(() => {
+                alertContainer.innerHTML = '';
+            }, 5000);
+        }
+
+        // Función para cargar estadísticas
+        async function loadDashboardStats() {
+            const loading = document.getElementById('loading');
+            const statsGrid = document.getElementById('statsGrid');
+
+            loading.style.display = 'block';
+            statsGrid.innerHTML = loading.outerHTML; // Reemplazar contenido temporalmente
+
+            try {
+                const response = await fetch('/api/vulnerabilidades', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (!response.ok) throw new Error('Error en la respuesta');
+                const vulnerabilities = await response.json();
+
+                const stats = {
+                    total: vulnerabilities.length,
+                    byProtocol: vulnerabilities.reduce((acc, v) => {
+                        acc[v.protocolo_nombre] = (acc[v.protocolo_nombre] || 0) + 1;
+                        return acc;
+                    }, {}),
+                    byCriticidad: vulnerabilities.reduce((acc, v) => {
+                        acc[v.criticidad_nombre] = (acc[v.criticidad_nombre] || 0) + 1;
+                        return acc;
+                    }, {})
+                };
+
+                statsGrid.innerHTML = `
+                    <div class="stat-card"><h3>Total Vulnerabilidades</h3><p>${stats.total}</p></div>
+                    <div class="stat-card"><h3>SMB</h3><p>${stats.byProtocol['SMB'] || 0}</p></div>
+                    <div class="stat-card"><h3>TLS</h3><p>${stats.byProtocol['TLS'] || 0}</p></div>
+                    <div class="stat-card"><h3>SSL</h3><p>${stats.byProtocol['SSL'] || 0}</p></div>
+                    <div class="stat-card"><h3>Baja</h3><p>${stats.byCriticidad['Baja'] || 0}</p></div>
+                    <div class="stat-card"><h3>Media</h3><p>${stats.byCriticidad['Media'] || 0}</p></div>
+                    <div class="stat-card"><h3>Alta</h3><p>${stats.byCriticidad['Alta'] || 0}</p></div>
+                    <div class="stat-card"><h3>Crítica</h3><p>${stats.byCriticidad['Crítica'] || 0}</p></div>
+                `;
+
+                loading.style.display = 'none';
+            } catch (error) {
+                console.error('Error cargando estadísticas:', error);
+                loading.style.display = 'none';
+                showAlert('Error al cargar las estadísticas. Verifique su sesión.', 'danger');
+            }
+        }
+
+        // Cargar estadísticas al iniciar la página
+        document.addEventListener('DOMContentLoaded', function() {
+            loadDashboardStats();
+        });
+    </script>
+
+    <style>
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .stat-card {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+
+        .stat-card h3 {
+            margin: 0;
+            font-size: 1.1em;
+            color: #333;
+        }
+
+        .stat-card p {
+            margin: 5px 0 0;
+            font-size: 1.5em;
+            font-weight: bold;
+            color: #007bff;
+        }
+    </style>
+</body>
+</html>
