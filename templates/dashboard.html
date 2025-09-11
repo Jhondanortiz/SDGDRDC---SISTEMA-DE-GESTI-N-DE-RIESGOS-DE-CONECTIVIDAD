@@ -4,11 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SDGDRDC - Dashboard</title>
-    <link rel="stylesheet" href="/static/css/styles.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
 </head>
 <body>
     <div class="container">
-        <h1>📊 SDGDRDC - Dashboard</h1>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <h1>📊 SDGDRDC - Dashboard</h1>
+            <button onclick="window.location.href='/'" class="btn btn-small btn-warning">🔙 Volver</button>
+        </div>
         
         <div id="alertContainer"></div>
         
@@ -22,7 +25,8 @@
         let token = localStorage.getItem('token');
         if (!token) {
             alert('Por favor, inicie sesión primero.');
-            window.location.href = '/templates/index.html'; // Ajusta la ruta según tu endpoint de login
+            window.location.href = '/'; // Redirige a la página de login
+            return;
         }
 
         // Función para mostrar alertas
@@ -78,43 +82,18 @@
                 console.error('Error cargando estadísticas:', error);
                 loading.style.display = 'none';
                 showAlert('Error al cargar las estadísticas. Verifique su sesión.', 'danger');
+                if (error.message.includes('401')) {
+                    localStorage.removeItem('token');
+                    window.location.href = '/';
+                }
             }
         }
 
-        // Cargar estadísticas al iniciar la página
+        // Cargar estadísticas al iniciar y refrescar periódicamente
         document.addEventListener('DOMContentLoaded', function() {
             loadDashboardStats();
+            setInterval(loadDashboardStats, 30000); // Refresca cada 30 segundos
         });
     </script>
-
-    <style>
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 20px;
-            margin-top: 20px;
-        }
-
-        .stat-card {
-            background-color: #f8f9fa;
-            padding: 15px;
-            border-radius: 8px;
-            text-align: center;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-        }
-
-        .stat-card h3 {
-            margin: 0;
-            font-size: 1.1em;
-            color: #333;
-        }
-
-        .stat-card p {
-            margin: 5px 0 0;
-            font-size: 1.5em;
-            font-weight: bold;
-            color: #007bff;
-        }
-    </style>
 </body>
 </html>

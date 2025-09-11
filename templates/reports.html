@@ -4,11 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SDGDRDC - Reportes</title>
-    <link rel="stylesheet" href="/static/css/styles.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
 </head>
 <body>
     <div class="container">
-        <h1>📋 SDGDRDC - Reportes de Vulnerabilidades</h1>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <h1>📋 SDGDRDC - Reportes de Vulnerabilidades</h1>
+            <button onclick="window.location.href='/'" class="btn btn-small btn-warning">🔙 Volver</button>
+        </div>
         
         <div id="alertContainer"></div>
         
@@ -29,7 +32,7 @@
                 </thead>
                 <tbody id="reportBody"></tbody>
             </table>
-            <button id="generateReportBtn" class="btn-small btn-warning" onclick="generateReport()">📄 Generar Reporte</button>
+            <button id="generateReportBtn" class="btn btn-small btn-warning" onclick="exportToCSV()">📥 Exportar a CSV</button>
         </div>
     </div>
 
@@ -37,8 +40,10 @@
         // Verificar autenticación
         let token = localStorage.getItem('token');
         if (!token) {
+            console.log('No token found, redirecting to login');
             alert('Por favor, inicie sesión primero.');
-            window.location.href = '/templates/index.html'; // Ajusta la ruta según tu endpoint de login
+            window.location.href = '/';
+            return;
         }
 
         // Función para mostrar alertas
@@ -51,8 +56,8 @@
             }, 5000);
         }
 
-        // Función para generar reporte
-        async function generateReport() {
+        // Función para cargar reportes
+        async function loadReports() {
             const loading = document.getElementById('loading');
             const table = document.getElementById('reportTable');
             const tbody = document.getElementById('reportBody');
@@ -61,45 +66,92 @@
             table.style.display = 'none';
 
             try {
+                console.log('Fetching vulnerabilities with token:', token.substring(0, 10) + '...'); // Log parcial del token
                 const response = await fetch('/api/vulnerabilidades', {
-                    headers: { 'Authorization': `Bearer ${token}` }
+                    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
                 });
-                if (!response.ok) throw new Error('Error en la respuesta');
+                console.log('API response status:', response.status);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
                 const vulnerabilities = await response.json();
+                console.log('Vulnerabilities fetched:', vulnerabilities.length);
 
                 tbody.innerHTML = '';
 
-                vulnerabilities.forEach(vuln => {
-                    const row = document.createElement('tr');
-                    row.innerHTML = `
-                        <td>${vuln.id_vulnerabilidad}</td>
-                        <td>${vuln.protocolo_nombre || 'Desconocido'}</td>
-                        <td><span class="criticidad-${vuln.criticidad_nombre.toLowerCase().replace(' ', '-')}">${vuln.criticidad_nombre}</span></td>
-                        <td><span class="estado-${vuln.estado_nombre.toLowerCase().replace(' ', '-')}">${vuln.estado_nombre}</span></td>
-                        <td title="${vuln.descripcion}">${vuln.descripcion.substring(0, 50)}${vuln.descripcion.length > 50 ? '...' : ''}</td>
-                        <td>${vuln.fecha_identificacion}</td>
-                        <td>${vuln.responsable || 'Sin asignar'}</td>
-                        <td>${vuln.usuario_nombre || 'Sin asignar'}</td>
-                    `;
-                    tbody.appendChild(row);
-                });
+                if (vulnerabilities.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 20px;">No hay vulnerabilidades para reportar</td></tr>';
+                } else {
+                    vulnerabilities.forEach(vuln => {
+                        const row = document.createElement('tr');
+                        row.innerHTML = `
+                            <td>${vuln.id_vulnerabilidad || 'N/A'}</td>
+                            <td>${vuln.protocolo_nombre || 'Desconocido'}</td>
+                            <td>${vuln.criticidad_nombre || 'Sin asignar'}</td>
+                            <td>${vuln.estado_nombre || 'Sin asignar'}</td>
+                            <td title="${vuln.descripcion || ''}">${(vuln.descripcion || '').substring(0, 50)}${(vuln.descripcion || '').length > 50 ? '...' : ''}</td>
+                            <td>${vuln.fecha_identificacion || 'N/A'}</td>
+                            <td>${vuln.responsable || 'Sin asignar'}</td>
+                            <td>${vuln.usuario_nombre || 'Sin asignar'}</td>
+                        `;
+                        tbody.appendChild(row);
+                    });
+                }
 
                 loading.style.display = 'none';
                 table.style.display = 'table';
-
-                if (vulnerabilities.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 20px;">No hay vulnerabilidades para reportar</td></tr>';
-                }
             } catch (error) {
-                console.error('Error generando reporte:', error);
+                console.error('Error loading reports:', error);
                 loading.style.display = 'none';
-                showAlert('Error al generar el reporte. Verifique su sesión.', 'danger');
+                showAlert('Error al cargar los reportes. Verifique su sesión o la API.', 'danger');
+                if (error.message.includes('401')) {
+                    console.log('Unauthorized, clearing token and redirecting');
+                    localStorage.removeItem('token');
+                    window.location.href = '/';
+                } else if (error.message.includes('404') || error.message.includes('500')) {
+                    showAlert('Error en el servidor. Contacte al administrador.', 'danger');
+                }
             }
         }
 
-        // Cargar reporte al iniciar la página
+        // Función para exportar a CSV
+        function exportToCSV() {
+            if (!document.getElementById('reportTable').style.display === 'table') {
+                showAlert('Genere el reporte primero.', 'danger');
+                return;
+            }
+            fetch('/api/vulnerabilidades', {
+                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
+            })
+            .then(response => {
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                return response.json();
+            })
+            .then(vulnerabilities => {
+                let csv = 'ID,Protocolo,Criticidad,Estado,Descripción,Fecha de Identificación,Responsable,Usuario Asignado\n';
+                vulnerabilities.forEach(v => {
+                    csv += `${v.id_vulnerabilidad || ''},${v.protocolo_nombre || ''},${v.criticidad_nombre || ''},${v.estado_nombre || ''},${(v.descripcion || '').replace(/,/g, ';')},${v.fecha_identificacion || ''},${v.responsable || ''},${v.usuario_nombre || ''}\n`;
+                });
+                const blob = new Blob([csv], { type: 'text/csv' });
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'vulnerabilities_report_' + new Date().toISOString().split('T')[0] + '.csv';
+                a.click();
+                window.URL.revokeObjectURL(url);
+                showAlert('Reporte exportado exitosamente', 'success');
+            })
+            .catch(error => {
+                console.error('Error exporting CSV:', error);
+                showAlert('Error al exportar el reporte. Verifique su conexión.', 'danger');
+            });
+        }
+
+        // Cargar reportes al iniciar y refrescar periódicamente
         document.addEventListener('DOMContentLoaded', function() {
-            generateReport();
+            console.log('Page loaded, starting report load');
+            loadReports();
+            setInterval(loadReports, 30000); // Refresca cada 30 segundos
         });
     </script>
 </body>
