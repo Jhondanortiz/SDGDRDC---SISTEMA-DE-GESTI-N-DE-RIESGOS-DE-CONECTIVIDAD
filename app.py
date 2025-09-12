@@ -243,7 +243,8 @@ def login():
         
         logger.debug(f"Intentando login para email: {email}")
         
-        user = db.session.get(Usuario, email)  # Usar get con email como clave secundaria
+        # Buscar usuario por email usando una consulta explícita
+        user = db.session.execute(db.select(Usuario).filter_by(email=email)).scalar_one_or_none()
         if not user:
             logger.error(f"Usuario no encontrado para email: {email}")
             return jsonify({'error': 'Credenciales inválidas'}), 401
@@ -334,7 +335,8 @@ def vulnerabilidades():
             ).outerjoin(Usuario, Vulnerabilidad.id_usuario_asignado == Usuario.id_usuario)\
              .join(Protocolo, Vulnerabilidad.id_protocolo == Protocolo.id_protocolo)\
              .join(Criticidad, Vulnerabilidad.id_criticidad == Criticidad.id_criticidad)\
-             .join(Estado, Vulnerabilidad.id_estado == Estado.id_estado).all()
+             .join(Estado, Vulnerabilidad.id_estado == Estado.id_estado)\
+             .filter(Vulnerabilidad.id_usuario_asignado == current_user_id).all()
             
             resultado = [{
                 'id_vulnerabilidad': v.Vulnerabilidad.id_vulnerabilidad,
@@ -583,6 +585,13 @@ if __name__ == '__main__':
                     db.session.rollback()
         else:
             logger.info("Base de datos existente detectada, no se reiniciarán los datos")
+            # Asegurarse de que el usuario admin existe
+            admin = db.session.execute(db.select(Usuario).filter_by(email='admin@uniminuto.edu')).scalar_one_or_none()
+            if not admin:
+                logger.info("Usuario admin no encontrado, creándolo...")
+                db.session.add(Usuario(nombre='Admin', email='admin@uniminuto.edu', contraseña=generate_password_hash('admin123'), rol='admin'))
+                db.session.commit()
+                logger.info("Usuario admin creado exitosamente")
 
     print("=" * 60)
     print("🚀 SISTEMA DE GESTIÓN DE RIESGOS - SDGDRDC")
