@@ -37,23 +37,28 @@
     </div>
 
     <script>
-        // Verificar autenticación
-        let token = localStorage.getItem('token');
-        if (!token) {
-            console.log('No token found, redirecting to login');
-            alert('Por favor, inicie sesión primero.');
-            window.location.href = '/';
-            return;
+        // Variables globales
+        let token = localStorage.getItem('token') || null;
+
+        // Función para verificar autenticación
+        function checkAuth() {
+            if (!token) {
+                console.log('No token found, redirecting to login at', new Date().toLocaleString());
+                alert('Por favor, inicie sesión primero.');
+                window.location.href = '/';
+                return false;
+            }
+            return true;
         }
 
         // Función para mostrar alertas
         function showAlert(message, type = 'success') {
             const alertContainer = document.getElementById('alertContainer');
-            const alertClass = type === 'success' ? 'alert-success' : 'alert-danger';
-            alertContainer.innerHTML = `<div class="alert ${alertClass}">${message}</div>`;
-            setTimeout(() => {
-                alertContainer.innerHTML = '';
-            }, 5000);
+            if (alertContainer) {
+                const alertClass = type === 'success' ? 'alert-success' : 'alert-danger';
+                alertContainer.innerHTML = `<div class="alert ${alertClass}">${message}</div>`;
+                setTimeout(() => alertContainer.innerHTML = '', 5000);
+            }
         }
 
         // Función para cargar reportes
@@ -62,20 +67,29 @@
             const table = document.getElementById('reportTable');
             const tbody = document.getElementById('reportBody');
 
+            if (!loading || !table || !tbody) {
+                console.error('DOM elements not found at', new Date().toLocaleString());
+                return;
+            }
+
+            if (!checkAuth()) return;
+
             loading.style.display = 'block';
             table.style.display = 'none';
 
             try {
-                console.log('Fetching vulnerabilities with token:', token.substring(0, 10) + '...'); // Log parcial del token
+                console.log('Fetching vulnerabilities with token:', token.substring(0, 10) + '... at', new Date().toLocaleString());
                 const response = await fetch('/api/vulnerabilidades', {
                     headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
                 });
-                console.log('API response status:', response.status);
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
+                console.log('API response status:', response.status, 'at', new Date().toLocaleString());
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
                 const vulnerabilities = await response.json();
-                console.log('Vulnerabilities fetched:', vulnerabilities.length);
+                console.log('Vulnerabilities data:', JSON.stringify(vulnerabilities), 'at', new Date().toLocaleString());
+
+                if (!Array.isArray(vulnerabilities)) {
+                    throw new Error('Datos de vulnerabilidades no son un array válido');
+                }
 
                 tbody.innerHTML = '';
 
@@ -86,13 +100,13 @@
                         const row = document.createElement('tr');
                         row.innerHTML = `
                             <td>${vuln.id_vulnerabilidad || 'N/A'}</td>
-                            <td>${vuln.protocolo_nombre || 'Desconocido'}</td>
-                            <td>${vuln.criticidad_nombre || 'Sin asignar'}</td>
-                            <td>${vuln.estado_nombre || 'Sin asignar'}</td>
+                            <td>${vuln.protocolo_nombre || vuln.protocolo || 'Desconocido'}</td>
+                            <td>${vuln.criticidad_nombre || vuln.criticidad || 'Sin asignar'}</td>
+                            <td>${vuln.estado_nombre || vuln.estado || 'Sin asignar'}</td>
                             <td title="${vuln.descripcion || ''}">${(vuln.descripcion || '').substring(0, 50)}${(vuln.descripcion || '').length > 50 ? '...' : ''}</td>
                             <td>${vuln.fecha_identificacion || 'N/A'}</td>
                             <td>${vuln.responsable || 'Sin asignar'}</td>
-                            <td>${vuln.usuario_nombre || 'Sin asignar'}</td>
+                            <td>${vuln.usuario_nombre || vuln.usuario || 'Sin asignar'}</td>
                         `;
                         tbody.appendChild(row);
                     });
@@ -101,25 +115,29 @@
                 loading.style.display = 'none';
                 table.style.display = 'table';
             } catch (error) {
-                console.error('Error loading reports:', error);
+                console.error('Error loading reports:', error, 'at', new Date().toLocaleString());
                 loading.style.display = 'none';
-                showAlert('Error al cargar los reportes. Verifique su sesión o la API.', 'danger');
+                showAlert(`Error al cargar los reportes: ${error.message}`, 'danger');
                 if (error.message.includes('401')) {
-                    console.log('Unauthorized, clearing token and redirecting');
+                    console.log('Unauthorized, clearing token and redirecting at', new Date().toLocaleString());
                     localStorage.removeItem('token');
                     window.location.href = '/';
                 } else if (error.message.includes('404') || error.message.includes('500')) {
                     showAlert('Error en el servidor. Contacte al administrador.', 'danger');
+                } else {
+                    showAlert('Error inesperado al cargar los reportes.', 'danger');
                 }
             }
         }
 
         // Función para exportar a CSV
         function exportToCSV() {
-            if (!document.getElementById('reportTable').style.display === 'table') {
-                showAlert('Genere el reporte primero.', 'danger');
+            const table = document.getElementById('reportTable');
+            if (!table || table.style.display !== 'table') {
+                showAlert('Genere el reporte primero o verifique los datos.', 'danger');
                 return;
             }
+
             fetch('/api/vulnerabilidades', {
                 headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
             })
@@ -130,26 +148,35 @@
             .then(vulnerabilities => {
                 let csv = 'ID,Protocolo,Criticidad,Estado,Descripción,Fecha de Identificación,Responsable,Usuario Asignado\n';
                 vulnerabilities.forEach(v => {
-                    csv += `${v.id_vulnerabilidad || ''},${v.protocolo_nombre || ''},${v.criticidad_nombre || ''},${v.estado_nombre || ''},${(v.descripcion || '').replace(/,/g, ';')},${v.fecha_identificacion || ''},${v.responsable || ''},${v.usuario_nombre || ''}\n`;
+                    csv += [
+                        v.id_vulnerabilidad || '',
+                        v.protocolo_nombre || v.protocolo || '',
+                        v.criticidad_nombre || v.criticidad || '',
+                        v.estado_nombre || v.estado || '',
+                        `"${(v.descripcion || '').replace(/"/g, '""')}"`,
+                        v.fecha_identificacion || '',
+                        v.responsable || '',
+                        v.usuario_nombre || v.usuario || ''
+                    ].join(',') + '\n';
                 });
-                const blob = new Blob([csv], { type: 'text/csv' });
+                const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
                 const url = window.URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = 'vulnerabilities_report_' + new Date().toISOString().split('T')[0] + '.csv';
+                a.download = `vulnerabilities_report_${new Date().toISOString().split('T')[0]}.csv`;
                 a.click();
                 window.URL.revokeObjectURL(url);
                 showAlert('Reporte exportado exitosamente', 'success');
             })
             .catch(error => {
-                console.error('Error exporting CSV:', error);
+                console.error('Error exporting CSV:', error, 'at', new Date().toLocaleString());
                 showAlert('Error al exportar el reporte. Verifique su conexión.', 'danger');
             });
         }
 
         // Cargar reportes al iniciar y refrescar periódicamente
-        document.addEventListener('DOMContentLoaded', function() {
-            console.log('Page loaded, starting report load');
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('Reports page loaded, starting report load at', new Date().toLocaleString());
             loadReports();
             setInterval(loadReports, 30000); // Refresca cada 30 segundos
         });

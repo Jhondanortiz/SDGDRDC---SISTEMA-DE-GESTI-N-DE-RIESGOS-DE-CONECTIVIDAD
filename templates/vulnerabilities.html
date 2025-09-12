@@ -4,11 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SDGDRDC - Gestión de Vulnerabilidades</title>
-    <link rel="stylesheet" href="/static/css/styles.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
 </head>
 <body>
     <div class="container">
-        <h1>🔍 SDGDRDC - Gestión de Vulnerabilidades</h1>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <h1>🔍 SDGDRDC - Gestión de Vulnerabilidades</h1>
+            <button onclick="window.location.href='/'" class="btn btn-small btn-warning">🔙 Volver</button>
+        </div>
         
         <div id="alertContainer"></div>
         
@@ -36,7 +39,7 @@
                     <option value="Resuelta">Resuelta</option>
                     <option value="Cerrada">Cerrada</option>
                 </select>
-                <button id="applyFilterBtn" class="btn-small btn-warning">Aplicar Filtros</button>
+                <button id="applyFilterBtn" class="btn btn-small btn-warning">Aplicar Filtros</button>
             </div>
         </div>
 
@@ -65,8 +68,10 @@
         // Verificar autenticación
         let token = localStorage.getItem('token');
         if (!token) {
+            console.log('No token found, redirecting to login');
             alert('Por favor, inicie sesión primero.');
-            window.location.href = '/templates/index.html'; // Ajusta la ruta según tu endpoint de login
+            window.location.href = '/'; // Redirige a la página de login
+            return;
         }
 
         // Función para mostrar alertas
@@ -89,54 +94,70 @@
             table.style.display = 'none';
 
             try {
+                console.log('Fetching vulnerabilities with token:', token.substring(0, 10) + '...');
                 const response = await fetch('/api/vulnerabilidades', {
-                    headers: { 'Authorization': `Bearer ${token}` }
+                    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
                 });
-                if (!response.ok) throw new Error('Error en la respuesta');
+                console.log('API response status:', response.status);
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
                 let vulnerabilities = await response.json();
+                console.log('Vulnerabilities fetched:', vulnerabilities.length);
+
+                if (!Array.isArray(vulnerabilities)) {
+                    throw new Error('Datos de vulnerabilidades no son un array válido');
+                }
 
                 // Aplicar filtros
                 if (filters.protocol) {
-                    vulnerabilities = vulnerabilities.filter(v => v.protocolo_nombre === filters.protocol);
+                    vulnerabilities = vulnerabilities.filter(v => (v.protocolo_nombre || v.protocolo) === filters.protocol);
                 }
                 if (filters.criticidad) {
-                    vulnerabilities = vulnerabilities.filter(v => v.criticidad_nombre === filters.criticidad);
+                    vulnerabilities = vulnerabilities.filter(v => (v.criticidad_nombre || v.criticidad) === filters.criticidad);
                 }
                 if (filters.estado) {
-                    vulnerabilities = vulnerabilities.filter(v => v.estado_nombre === filters.estado);
+                    vulnerabilities = vulnerabilities.filter(v => (v.estado_nombre || v.estado) === filters.estado);
                 }
 
                 tbody.innerHTML = '';
 
-                vulnerabilities.forEach(vuln => {
-                    const row = document.createElement('tr');
-                    row.innerHTML = `
-                        <td>${vuln.id_vulnerabilidad}</td>
-                        <td>${vuln.protocolo_nombre || 'Desconocido'}</td>
-                        <td><span class="criticidad-${vuln.criticidad_nombre.toLowerCase().replace(' ', '-')}">${vuln.criticidad_nombre}</span></td>
-                        <td><span class="estado-${vuln.estado_nombre.toLowerCase().replace(' ', '-')}">${vuln.estado_nombre}</span></td>
-                        <td title="${vuln.descripcion}">${vuln.descripcion.substring(0, 50)}${vuln.descripcion.length > 50 ? '...' : ''}</td>
-                        <td>${vuln.fecha_identificacion}</td>
-                        <td>${vuln.responsable || 'Sin asignar'}</td>
-                        <td>${vuln.usuario_nombre || 'Sin asignar'}</td>
-                        <td>
-                            <button class="btn-small btn-warning" onclick="editVulnerability(${vuln.id_vulnerabilidad})">✏️ Editar</button>
-                            <button class="btn-small btn-danger" onclick="deleteVulnerability(${vuln.id_vulnerabilidad})">🗑️ Eliminar</button>
-                        </td>
-                    `;
-                    tbody.appendChild(row);
-                });
+                if (vulnerabilities.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; padding: 20px;">No hay vulnerabilidades que coincidan con los filtros</td></tr>';
+                } else {
+                    vulnerabilities.forEach(vuln => {
+                        const row = document.createElement('tr');
+                        row.innerHTML = `
+                            <td>${vuln.id_vulnerabilidad || 'N/A'}</td>
+                            <td>${vuln.protocolo_nombre || vuln.protocolo || 'Desconocido'}</td>
+                            <td><span class="criticidad-${(vuln.criticidad_nombre || vuln.criticidad || '').toLowerCase().replace(' ', '-')}">${vuln.criticidad_nombre || vuln.criticidad || 'Sin asignar'}</span></td>
+                            <td><span class="estado-${(vuln.estado_nombre || vuln.estado || '').toLowerCase().replace(' ', '-')}">${vuln.estado_nombre || vuln.estado || 'Sin asignar'}</span></td>
+                            <td title="${vuln.descripcion || ''}">${(vuln.descripcion || '').substring(0, 50)}${(vuln.descripcion || '').length > 50 ? '...' : ''}</td>
+                            <td>${vuln.fecha_identificacion || 'N/A'}</td>
+                            <td>${vuln.responsable || 'Sin asignar'}</td>
+                            <td>${vuln.usuario_nombre || vuln.usuario || 'Sin asignar'}</td>
+                            <td>
+                                <button class="btn-small btn-warning" onclick="editVulnerability(${vuln.id_vulnerabilidad || 'N/A'})">✏️ Editar</button>
+                                <button class="btn-small btn-danger" onclick="deleteVulnerability(${vuln.id_vulnerabilidad || 'N/A'})">🗑️ Eliminar</button>
+                            </td>
+                        `;
+                        tbody.appendChild(row);
+                    });
+                }
 
                 loading.style.display = 'none';
                 table.style.display = 'table';
-
-                if (vulnerabilities.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; padding: 20px;">No hay vulnerabilidades que coincidan con los filtros</td></tr>';
-                }
             } catch (error) {
-                console.error('Error cargando vulnerabilidades:', error);
+                console.error('Error loading vulnerabilities:', error);
                 loading.style.display = 'none';
                 showAlert('Error al cargar las vulnerabilidades. Verifique su sesión.', 'danger');
+                if (error.message.includes('401')) {
+                    console.log('Unauthorized, clearing token and redirecting');
+                    localStorage.removeItem('token');
+                    window.location.href = '/';
+                } else if (error.message.includes('404') || error.message.includes('500')) {
+                    showAlert('Error en el servidor. Contacte al administrador.', 'danger');
+                } else {
+                    showAlert('Error inesperado al cargar las vulnerabilidades.', 'danger');
+                }
             }
         }
 
@@ -144,20 +165,21 @@
         async function deleteVulnerability(id) {
             if (confirm('¿Estás seguro de que quieres eliminar esta vulnerabilidad?')) {
                 try {
+                    console.log('Deleting vulnerability ID:', id);
                     const response = await fetch(`/api/vulnerabilidades/${id}`, {
                         method: 'DELETE',
                         headers: { 'Authorization': `Bearer ${token}` }
                     });
-
+                    console.log('Delete response status:', response.status);
                     if (response.ok) {
                         showAlert('Vulnerabilidad eliminada exitosamente');
-                        loadVulnerabilities();
+                        loadVulnerabilities(); // Recargar sin filtros
                     } else {
                         const error = await response.json();
                         showAlert(error.error || 'Error al eliminar la vulnerabilidad', 'danger');
                     }
                 } catch (error) {
-                    console.error('Error:', error);
+                    console.error('Error deleting vulnerability:', error);
                     showAlert('Error al eliminar la vulnerabilidad', 'danger');
                 }
             }
@@ -165,7 +187,9 @@
 
         // Función para editar vulnerabilidad (placeholder)
         function editVulnerability(id) {
+            console.log('Editing vulnerability ID:', id);
             alert(`Funcionalidad de edición para vulnerabilidad ID: ${id} (pendiente de implementar)`);
+            // Para implementación completa, redirigir a un formulario de edición o abrir un modal
         }
 
         // Aplicar filtros
@@ -175,12 +199,15 @@
                 criticidad: document.getElementById('filterCriticidad').value,
                 estado: document.getElementById('filterEstado').value
             };
+            console.log('Applying filters:', filters);
             loadVulnerabilities(filters);
         });
 
         // Cargar vulnerabilidades al iniciar la página
         document.addEventListener('DOMContentLoaded', function() {
+            console.log('Page loaded, starting vulnerabilities load');
             loadVulnerabilities();
+            setInterval(() => loadVulnerabilities({}), 30000); // Refresca cada 30 segundos sin filtros
         });
     </script>
 </body>

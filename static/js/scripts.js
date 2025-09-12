@@ -6,21 +6,25 @@ let token = localStorage.getItem('token') || null;
 // Verificar autenticación y validar token
 async function verifyAuthentication() {
     if (!token) {
+        console.log('No token found, redirecting to login');
         alert('Por favor, inicie sesión primero.');
         window.location.href = '/'; // Redirigir a la página principal para login
         return false;
     }
 
     try {
+        console.log('Verificando autenticación con token:', token.substring(0, 10) + '...');
         const response = await fetch('/api/protocolos', {
             headers: { 'Authorization': `Bearer ${token}` }
         });
         if (!response.ok && response.status === 401) {
+            console.log('Token inválido, limpiando y redirigiendo');
             alert('Sesión inválida o expirada. Por favor, inicie sesión de nuevo.');
             localStorage.removeItem('token');
             window.location.href = '/';
             return false;
         }
+        console.log('Autenticación verificada exitosamente');
         return true;
     } catch (error) {
         console.error('Error verificando autenticación:', error);
@@ -32,20 +36,31 @@ async function verifyAuthentication() {
 // Función para cargar y renderizar el gráfico
 async function loadChart() {
     const ctx = document.getElementById('vulnerabilityChart')?.getContext('2d');
-    if (!ctx) return; // Salir si no se encuentra el canvas
+    if (!ctx) {
+        console.warn('Canvas "vulnerabilityChart" no encontrado');
+        return; // Salir si no se encuentra el canvas
+    }
 
     if (!await verifyAuthentication()) return;
 
     try {
+        console.log('Cargando datos para el gráfico con token:', token.substring(0, 10) + '...');
         const response = await fetch('/api/vulnerabilidades', {
             headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
         });
+        console.log('API response status:', response.status);
         if (!response.ok) throw new Error(`Error en la respuesta de la API: ${response.status}`);
         const vulnerabilities = await response.json();
+        console.log('Datos recibidos para el gráfico:', vulnerabilities.length, 'vulnerabilidades');
+
+        if (!Array.isArray(vulnerabilities)) {
+            throw new Error('Datos de vulnerabilidades no son un array válido');
+        }
 
         // Contar vulnerabilidades por protocolo
         const protocolCounts = vulnerabilities.reduce((acc, vuln) => {
-            acc[vuln.protocolo_nombre || 'Desconocido'] = (acc[vuln.protocolo_nombre || 'Desconocido'] || 0) + 1;
+            const protocolo = vuln.protocolo_nombre || vuln.protocolo || 'Desconocido';
+            acc[protocolo] = (acc[protocolo] || 0) + 1;
             return acc;
         }, {});
 
@@ -71,6 +86,8 @@ async function loadChart() {
                 }]
             },
             options: {
+                responsive: true,
+                maintainAspectRatio: false,
                 scales: {
                     y: {
                         beginAtZero: true,
@@ -100,10 +117,18 @@ async function loadChart() {
 
         // Crear nuevo gráfico
         window.vulnerabilityChart = new Chart(ctx, chartData);
+        console.log('Gráfico renderizado exitosamente');
     } catch (error) {
         console.error('Error cargando el gráfico:', error);
         ctx.canvas.style.display = 'none'; // Ocultar canvas en caso de error
-        alert('Error al cargar el gráfico. Verifique su sesión o los datos.');
+        showAlert('Error al cargar el gráfico. Verifique su sesión o los datos.', 'danger');
+        if (error.message.includes('401')) {
+            console.log('Unauthorized, clearing token and redirecting');
+            localStorage.removeItem('token');
+            window.location.href = '/';
+        } else if (error.message.includes('404') || error.message.includes('500')) {
+            showAlert('Error en el servidor. Contacte al administrador.', 'danger');
+        }
     }
 }
 
@@ -114,14 +139,18 @@ function refreshChart() {
 
 // Cargar gráfico al iniciar la página y manejar eventos
 document.addEventListener('DOMContentLoaded', async function() {
+    console.log('Page loaded, starting chart load');
     await loadChart();
 
     // Opcional: Escuchar eventos de actualización (por ejemplo, creación de vulnerabilidad)
-    document.getElementById('vulnerabilidadForm')?.addEventListener('submit', function(e) {
-        e.preventDefault();
-        // Lógica de submit ya manejada en index.html, solo recargar gráfico
-        setTimeout(refreshChart, 1000); // Esperar a que se complete la creación
-    });
+    const form = document.getElementById('vulnerabilidadForm');
+    if (form) {
+        form.addEventListener('submit', function(e) {
+            e.preventDefault();
+            // Lógica de submit ya manejada en index.html, solo recargar gráfico
+            setTimeout(refreshChart, 1000); // Esperar a que se complete la creación
+        });
+    }
 });
 
 // Exportar funciones para uso en otros módulos (si es necesario)

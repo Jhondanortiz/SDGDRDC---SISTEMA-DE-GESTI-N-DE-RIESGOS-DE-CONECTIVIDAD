@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SDGDRDC - Dashboard</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
     <div class="container">
@@ -17,16 +18,23 @@
         
         <div class="stats-grid" id="statsGrid">
             <div class="loading" id="loading">Cargando estadísticas...</div>
+            <canvas id="vulnerabilityChart" width="400" height="200" style="display: none;"></canvas>
         </div>
     </div>
 
     <script>
-        // Verificar autenticación
-        let token = localStorage.getItem('token');
-        if (!token) {
-            alert('Por favor, inicie sesión primero.');
-            window.location.href = '/'; // Redirige a la página de login
-            return;
+        // Variables globales
+        let token = localStorage.getItem('token') || null;
+
+        // Función para verificar autenticación
+        function checkAuth() {
+            if (!token) {
+                console.log('No token found, redirecting to login at', new Date().toLocaleString());
+                alert('Por favor, inicie sesión primero.');
+                window.location.href = '/';
+                return false;
+            }
+            return true;
         }
 
         // Función para mostrar alertas
@@ -34,39 +42,51 @@
             const alertContainer = document.getElementById('alertContainer');
             const alertClass = type === 'success' ? 'alert-success' : 'alert-danger';
             alertContainer.innerHTML = `<div class="alert ${alertClass}">${message}</div>`;
-            setTimeout(() => {
-                alertContainer.innerHTML = '';
-            }, 5000);
+            setTimeout(() => alertContainer.innerHTML = '', 5000);
         }
 
-        // Función para cargar estadísticas
+        // Función para cargar y renderizar estadísticas
         async function loadDashboardStats() {
             const loading = document.getElementById('loading');
             const statsGrid = document.getElementById('statsGrid');
+            const chartCanvas = document.getElementById('vulnerabilityChart');
+
+            if (!checkAuth()) return;
 
             loading.style.display = 'block';
             statsGrid.innerHTML = loading.outerHTML; // Reemplazar contenido temporalmente
+            chartCanvas.style.display = 'none';
 
             try {
+                console.log('Fetching vulnerabilities with token:', token.substring(0, 10) + '... at', new Date().toLocaleString());
                 const response = await fetch('/api/vulnerabilidades', {
-                    headers: { 'Authorization': `Bearer ${token}` }
+                    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
                 });
-                if (!response.ok) throw new Error('Error en la respuesta');
+                console.log('API response status:', response.status, 'at', new Date().toLocaleString());
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
                 const vulnerabilities = await response.json();
+                console.log('Vulnerabilities data:', JSON.stringify(vulnerabilities), 'at', new Date().toLocaleString());
+
+                if (!Array.isArray(vulnerabilities)) {
+                    throw new Error('Datos de vulnerabilidades no son un array válido');
+                }
 
                 const stats = {
                     total: vulnerabilities.length,
                     byProtocol: vulnerabilities.reduce((acc, v) => {
-                        acc[v.protocolo_nombre] = (acc[v.protocolo_nombre] || 0) + 1;
+                        const protocolo = v.protocolo_nombre || v.protocolo || 'Desconocido';
+                        acc[protocolo] = (acc[protocolo] || 0) + 1;
                         return acc;
                     }, {}),
                     byCriticidad: vulnerabilities.reduce((acc, v) => {
-                        acc[v.criticidad_nombre] = (acc[v.criticidad_nombre] || 0) + 1;
+                        const criticidad = v.criticidad_nombre || v.criticidad || 'Sin asignar';
+                        acc[criticidad] = (acc[criticidad] || 0) + 1;
                         return acc;
                     }, {})
                 };
 
-                statsGrid.innerHTML = `
+                // Generar HTML para tarjetas de estadísticas
+                const statsHTML = `
                     <div class="stat-card"><h3>Total Vulnerabilidades</h3><p>${stats.total}</p></div>
                     <div class="stat-card"><h3>SMB</h3><p>${stats.byProtocol['SMB'] || 0}</p></div>
                     <div class="stat-card"><h3>TLS</h3><p>${stats.byProtocol['TLS'] || 0}</p></div>
@@ -76,21 +96,70 @@
                     <div class="stat-card"><h3>Alta</h3><p>${stats.byCriticidad['Alta'] || 0}</p></div>
                     <div class="stat-card"><h3>Crítica</h3><p>${stats.byCriticidad['Crítica'] || 0}</p></div>
                 `;
+                statsGrid.innerHTML = statsHTML;
+
+                // Renderizar gráfico si hay datos
+                if (vulnerabilities.length > 0) {
+                    const ctx = chartCanvas.getContext('2d');
+                    if (!ctx) throw new Error('Canvas context not available');
+                    const protocolCounts = Object.values(stats.byProtocol);
+                    const labels = Object.keys(stats.byProtocol);
+
+                    if (window.dashboardChart) {
+                        window.dashboardChart.destroy();
+                    }
+
+                    window.dashboardChart = new Chart(ctx, {
+                        type: 'bar',
+                        data: {
+                            labels: labels.length ? labels : ['Sin datos'],
+                            datasets: [{
+                                label: 'Vulnerabilidades por Protocolo',
+                                data: protocolCounts.length ? protocolCounts : [0],
+                                backgroundColor: [
+                                    '#007bff', '#28a745', '#dc3545', '#ffc107', '#17a2b8', '#6f42c1', '#e83e8c',
+                                    '#fd7e14', '#20c997', '#343a40'
+                                ],
+                                borderColor: '#333',
+                                borderWidth: 1
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            scales: {
+                                y: { beginAtZero: true, title: { display: true, text: 'Número de Vulnerabilidades' } },
+                                x: { title: { display: true, text: 'Protocolos' } }
+                            },
+                            plugins: { legend: { display: true, position: 'top' } }
+                        }
+                    });
+                    chartCanvas.style.display = 'block';
+                    console.log('Dashboard chart rendered successfully at', new Date().toLocaleString());
+                } else {
+                    console.log('No data available for chart at', new Date().toLocaleString());
+                }
 
                 loading.style.display = 'none';
             } catch (error) {
-                console.error('Error cargando estadísticas:', error);
+                console.error('Error loading dashboard stats:', error, 'at', new Date().toLocaleString());
                 loading.style.display = 'none';
-                showAlert('Error al cargar las estadísticas. Verifique su sesión.', 'danger');
+                showAlert(`Error al cargar las estadísticas: ${error.message}`, 'danger');
                 if (error.message.includes('401')) {
+                    console.log('Unauthorized, clearing token and redirecting at', new Date().toLocaleString());
                     localStorage.removeItem('token');
                     window.location.href = '/';
+                } else if (error.message.includes('404') || error.message.includes('500')) {
+                    showAlert('Error en el servidor. Contacte al administrador.', 'danger');
+                } else {
+                    showAlert('Error inesperado al cargar las estadísticas.', 'danger');
                 }
             }
         }
 
         // Cargar estadísticas al iniciar y refrescar periódicamente
-        document.addEventListener('DOMContentLoaded', function() {
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('Dashboard page loaded, starting stats load at', new Date().toLocaleString());
             loadDashboardStats();
             setInterval(loadDashboardStats, 30000); // Refresca cada 30 segundos
         });

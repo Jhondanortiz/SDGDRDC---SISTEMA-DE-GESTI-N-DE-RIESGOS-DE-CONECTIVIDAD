@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SDGDRDC - Gestión de Vulnerabilidades</title>
+    <title>SDGDRDC - Sistema de Gestión de Riesgos</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
 </head>
 <body>
@@ -44,41 +44,41 @@
         <form id="vulnerabilidadForm">
             <div class="form-group">
                 <label for="id_protocolo">🔗 Protocolo:</label>
-                <select name="id_protocolo" id="id_protocolo" required>
+                <select name="id_protocolo" id="id_protocolo" class="form-control" required>
                     <option value="">Seleccionar protocolo...</option>
                 </select>
             </div>
             <div class="form-group">
                 <label for="id_criticidad">⚠️ Criticidad:</label>
-                <select name="id_criticidad" id="id_criticidad" required>
+                <select name="id_criticidad" id="id_criticidad" class="form-control" required>
                     <option value="">Seleccionar criticidad...</option>
                 </select>
             </div>
             <div class="form-group">
                 <label for="id_estado">📋 Estado:</label>
-                <select name="id_estado" id="id_estado" required>
+                <select name="id_estado" id="id_estado" class="form-control" required>
                     <option value="">Seleccionar estado...</option>
                 </select>
             </div>
             <div class="form-group">
                 <label for="descripcion">📝 Descripción:</label>
-                <textarea name="descripcion" id="descripcion" maxlength="500" placeholder="Describa detalladamente (máx. 500 caracteres)..." required></textarea>
+                <textarea name="descripcion" id="descripcion" class="form-control" maxlength="500" placeholder="Describa detalladamente (máx. 500 caracteres)..." required></textarea>
             </div>
             <div class="form-group">
                 <label for="fecha_identificacion">📅 Fecha de Identificación:</label>
-                <input type="date" name="fecha_identificacion" id="fecha_identificacion" required>
+                <input type="date" name="fecha_identificacion" id="fecha_identificacion" class="form-control" required>
             </div>
             <div class="form-group">
                 <label for="responsable">👤 Responsable:</label>
-                <input type="text" name="responsable" id="responsable" maxlength="100">
+                <input type="text" name="responsable" id="responsable" class="form-control" maxlength="100">
             </div>
             <div class="form-group">
                 <label for="id_usuario_asignado">👥 Usuario Asignado:</label>
-                <select name="id_usuario_asignado" id="id_usuario_asignado">
+                <select name="id_usuario_asignado" id="id_usuario_asignado" class="form-control">
                     <option value="">Sin asignar</option>
                 </select>
             </div>
-            <button type="submit">🚀 Crear/Actualizar Vulnerabilidad</button>
+            <button type="submit" class="btn">🚀 Crear/Actualizar Vulnerabilidad</button>
         </form>
 
         <div class="container" id="vulnerabilidadesSection">
@@ -130,12 +130,14 @@
                 return;
             }
             try {
+                console.log('Attempting login with email:', email);
                 const response = await fetch('/login', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ email, contraseña: password })
                 });
                 const result = await response.json();
+                console.log('Login response:', response.status, result);
                 if (response.ok && result.token) {
                     token = result.token;
                     localStorage.setItem('token', token);
@@ -149,8 +151,8 @@
                     showLoginAlert(result.error || 'Credenciales inválidas', 'danger');
                 }
             } catch (error) {
+                console.error('Login error:', error);
                 showLoginAlert('Error de conexión', 'danger');
-                console.error(error);
             }
         }
 
@@ -184,15 +186,25 @@
                     fetch('/api/protocolos').then(r => r.json()),
                     fetch('/api/criticidades').then(r => r.json()),
                     fetch('/api/estados').then(r => r.json()),
-                    fetch('/api/usuarios', { headers: { 'Authorization': `Bearer ${token}` } }).then(r => r.json())
+                    fetch('/api/usuarios', { headers: { 'Authorization': `Bearer ${token}` } }).then(r => {
+                        if (!r.ok && r.status === 401) throw new Error('Unauthorized');
+                        return r.json();
+                    })
                 ]);
-                [protocolos, criticidades, estados, usuarios].forEach((data, i) => {
-                    const select = ['id_protocolo', 'id_criticidad', 'id_estado', 'id_usuario_asignado'][i];
-                    document.getElementById(select).innerHTML = '<option value="">Seleccionar...</option>' + data.map(item => `<option value="${item.id || item.id_usuario}">${item.nombre || item.nivel || item.email}</option>`).join('');
+                const selects = {
+                    'id_protocolo': protocolos.map(p => `<option value="${p.id_protocolo}">${p.nombre}</option>`),
+                    'id_criticidad': criticidades.map(c => `<option value="${c.id_criticidad}">${c.nivel}</option>`),
+                    'id_estado': estados.map(e => `<option value="${e.id_estado}">${e.nombre}</option>`),
+                    'id_usuario_asignado': usuarios.map(u => `<option value="${u.id_usuario}">${u.nombre} (${u.email})</option>`)
+                };
+                Object.entries(selects).forEach(([id, options]) => {
+                    const select = document.getElementById(id);
+                    select.innerHTML = '<option value="">Seleccionar...</option>' + options.join('');
                 });
             } catch (error) {
-                showAlert('Error al cargar datos de referencia', 'danger');
-                console.error(error);
+                console.error('Error loading reference data:', error);
+                showAlert(`Error al cargar datos de referencia: ${error.message}`, 'danger');
+                if (error.message.includes('401')) logout();
             }
         }
 
@@ -208,18 +220,23 @@
             loading.style.display = 'block';
             table.style.display = 'none';
             try {
-                const response = await fetch('/api/vulnerabilidades', { headers: { 'Authorization': `Bearer ${token}` } });
-                if (!response.ok) throw new Error('Error en la petición');
+                console.log('Fetching vulnerabilities with token:', token.substring(0, 10) + '...');
+                const response = await fetch('/api/vulnerabilidades', { 
+                    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' } 
+                });
+                console.log('API response status:', response.status);
+                if (!response.ok) throw new Error(`Error en la petición: ${response.status}`);
                 const vulnerabilidades = await response.json();
+                console.log('Vulnerabilities fetched:', vulnerabilidades.length);
                 const tbody = document.getElementById('vulnerabilidadesBody');
                 tbody.innerHTML = vulnerabilidades.map(v => `
                     <tr>
-                        <td>${v.id_vulnerabilidad}</td>
+                        <td>${v.id_vulnerabilidad || 'N/A'}</td>
                         <td>${v.protocolo_nombre || 'Desconocido'}</td>
-                        <td>${v.criticidad_nombre}</td>
-                        <td>${v.estado_nombre}</td>
-                        <td title="${v.descripcion}">${v.descripcion.substring(0, 50)}${v.descripcion.length > 50 ? '...' : ''}</td>
-                        <td>${v.fecha_identificacion}</td>
+                        <td><span class="criticidad-${(v.criticidad_nombre || '').toLowerCase().replace(' ', '-')}">${v.criticidad_nombre || 'Sin asignar'}</span></td>
+                        <td><span class="estado-${(v.estado_nombre || '').toLowerCase().replace(' ', '-')}">${v.estado_nombre || 'Sin asignar'}</span></td>
+                        <td title="${v.descripcion || ''}">${(v.descripcion || '').substring(0, 50)}${(v.descripcion || '').length > 50 ? '...' : ''}</td>
+                        <td>${v.fecha_identificacion || 'N/A'}</td>
                         <td>${v.responsable || 'Sin asignar'}</td>
                         <td>${v.usuario_nombre || 'Sin asignar'}</td>
                         <td>
@@ -232,9 +249,11 @@
                 table.style.display = 'table';
                 if (vulnerabilidades.length === 0) tbody.innerHTML = '<tr><td colspan="9">No hay vulnerabilidades</td></tr>';
             } catch (error) {
-                console.error(error);
-                showAlert('Error al cargar vulnerabilidades', 'danger');
+                console.error('Error loading vulnerabilities:', error);
                 loading.style.display = 'none';
+                showAlert(`Error al cargar vulnerabilidades: ${error.message}`, 'danger');
+                if (error.message.includes('401')) logout();
+                else if (error.message.includes('404') || error.message.includes('500')) showAlert('Error en el servidor. Contacte al administrador.', 'danger');
             }
         }
 
@@ -242,33 +261,45 @@
         async function eliminarVulnerabilidad(id) {
             if (!confirm('¿Eliminar vulnerabilidad?')) return;
             try {
-                const response = await fetch(`/api/vulnerabilidades/${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
+                console.log('Deleting vulnerability ID:', id);
+                const response = await fetch(`/api/vulnerabilidades/${id}`, { 
+                    method: 'DELETE', 
+                    headers: { 'Authorization': `Bearer ${token}` } 
+                });
+                console.log('Delete response status:', response.status);
                 if (response.ok) {
                     showAlert('Vulnerabilidad eliminada', 'success');
                     cargarVulnerabilidades();
                 } else {
                     const error = await response.json();
-                    showAlert(error.error, 'danger');
+                    showAlert(error.error || 'Error al eliminar la vulnerabilidad', 'danger');
                 }
             } catch (error) {
+                console.error('Error deleting vulnerability:', error);
                 showAlert('Error al eliminar', 'danger');
-                console.error(error);
             }
         }
 
         // Editar vulnerabilidad
         async function editarVulnerabilidad(id) {
             try {
+                console.log('Fetching vulnerability ID:', id);
                 const response = await fetch(`/api/vulnerabilidades/${id}`, { headers: { 'Authorization': `Bearer ${token}` } });
-                if (!response.ok) throw new Error('Error al obtener datos');
+                if (!response.ok) throw new Error(`Error al obtener datos: ${response.status}`);
                 const vuln = await response.json();
                 currentEditId = id;
-                ['id_protocolo', 'id_criticidad', 'id_estado', 'descripcion', 'fecha_identificacion', 'responsable', 'id_usuario_asignado']
-                    .forEach(field => document.getElementById(field).value = vuln[field] || (field === 'id_usuario_asignado' ? '' : vuln[field]));
+                document.getElementById('id_protocolo').value = vuln.id_protocolo || '';
+                document.getElementById('id_criticidad').value = vuln.id_criticidad || '';
+                document.getElementById('id_estado').value = vuln.id_estado || '';
+                document.getElementById('descripcion').value = vuln.descripcion || '';
+                document.getElementById('fecha_identificacion').value = vuln.fecha_identificacion || new Date().toISOString().split('T')[0];
+                document.getElementById('responsable').value = vuln.responsable || '';
+                document.getElementById('id_usuario_asignado').value = vuln.id_usuario_asignado || '';
                 document.querySelector('#vulnerabilidadForm button').textContent = '🚀 Actualizar Vulnerabilidad';
             } catch (error) {
-                showAlert('Error al cargar datos para edición', 'danger');
-                console.error(error);
+                console.error('Error editing vulnerability:', error);
+                showAlert(`Error al cargar datos para edición: ${error.message}`, 'danger');
+                if (error.message.includes('401')) logout();
             }
         }
 
@@ -276,24 +307,30 @@
         document.getElementById('vulnerabilidadForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             const data = {
-                id_protocolo: document.getElementById('id_protocolo').value,
-                id_criticidad: document.getElementById('id_criticidad').value,
-                id_estado: document.getElementById('id_estado').value,
-                descripcion: document.getElementById('descripcion').value,
-                fecha_identificacion: document.getElementById('fecha_identificacion').value,
-                responsable: document.getElementById('responsable').value,
+                id_protocolo: document.getElementById('id_protocolo').value || undefined,
+                id_criticidad: document.getElementById('id_criticidad').value || undefined,
+                id_estado: document.getElementById('id_estado').value || undefined,
+                descripcion: document.getElementById('descripcion').value || undefined,
+                fecha_identificacion: document.getElementById('fecha_identificacion').value || undefined,
+                responsable: document.getElementById('responsable').value || undefined,
                 id_usuario_asignado: document.getElementById('id_usuario_asignado').value || null
             };
+            if (!data.id_protocolo || !data.id_criticidad || !data.id_estado || !data.descripcion || !data.fecha_identificacion) {
+                showAlert('Complete todos los campos obligatorios', 'danger');
+                return;
+            }
             const url = currentEditId ? `/api/vulnerabilidades/${currentEditId}` : '/api/vulnerabilidades';
             const method = currentEditId ? 'PUT' : 'POST';
 
             try {
+                console.log('Submitting form with method:', method, 'data:', data);
                 const response = await fetch(url, {
                     method,
                     headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
                     body: JSON.stringify(data)
                 });
                 const result = await response.json();
+                console.log('Form response:', response.status, result);
                 if (response.ok) {
                     showAlert(`Vulnerabilidad ${currentEditId ? 'actualizada' : 'creada'} con ID: ${result.id || currentEditId}`, 'success');
                     document.getElementById('vulnerabilidadForm').reset();
@@ -305,8 +342,8 @@
                     showAlert(result.error || 'Error en la operación', 'danger');
                 }
             } catch (error) {
+                console.error('Form submission error:', error);
                 showAlert('Error en la operación', 'danger');
-                console.error(error);
             }
         });
 
@@ -316,6 +353,7 @@
             await cargarVulnerabilidades();
             document.getElementById('fecha_identificacion').value = new Date().toISOString().split('T')[0];
             setInterval(cargarVulnerabilidades, 30000); // Refresco cada 30 segundos
+            setInterval(checkServerStatus, 30000); // Revisar estado cada 30 segundos
         }
 
         // Event listeners para Enter en login
@@ -325,10 +363,12 @@
 
         // Inicialización
         document.addEventListener('DOMContentLoaded', async () => {
+            console.log('Page loaded, checking server status');
             await checkServerStatus();
             const storedToken = localStorage.getItem('token');
             if (storedToken) {
                 token = storedToken;
+                console.log('Using stored token:', token.substring(0, 10) + '...');
                 document.getElementById('loginSection').classList.add('hidden');
                 document.getElementById('mainSection').classList.remove('hidden');
                 await inicializarAplicacion();
