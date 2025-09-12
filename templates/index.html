@@ -163,6 +163,7 @@
             document.getElementById('loginSection').classList.remove('hidden');
             document.getElementById('mainSection').classList.add('hidden');
             document.getElementById('loginAlert').innerHTML = '';
+            document.getElementById('alertContainer').innerHTML = '';
             showLoginAlert('Sesión cerrada', 'success');
         }
 
@@ -179,42 +180,61 @@
             setTimeout(() => alert.innerHTML = '', 5000);
         }
 
+        // Verificar token
+        async function verifyToken() {
+            if (!token) return false;
+            try {
+                const response = await fetch('/api/verify-token', { headers: { 'Authorization': `Bearer ${token}` } });
+                if (response.status === 401) {
+                    logout();
+                    return false;
+                }
+                if (!response.ok) throw new Error(`Error en verificación: ${response.status}`);
+                return true;
+            } catch (error) {
+                console.error('Token verification error:', error);
+                logout();
+                return false;
+            }
+        }
+
         // Cargar datos de referencia
         async function cargarDatosReferencia() {
+            if (!await verifyToken()) return;
             try {
-                const [protocolos, criticidades, estados, usuarios] = await Promise.all([
+                const [protocolos, criticidades, estados] = await Promise.all([
                     fetch('/api/protocolos').then(r => r.json()),
                     fetch('/api/criticidades').then(r => r.json()),
-                    fetch('/api/estados').then(r => r.json()),
-                    fetch('/api/usuarios', { headers: { 'Authorization': `Bearer ${token}` } }).then(r => {
-                        if (!r.ok && r.status === 401) throw new Error('Unauthorized');
-                        return r.json();
-                    })
+                    fetch('/api/estados').then(r => r.json())
                 ]);
                 const selects = {
                     'id_protocolo': protocolos.map(p => `<option value="${p.id_protocolo}">${p.nombre}</option>`),
                     'id_criticidad': criticidades.map(c => `<option value="${c.id_criticidad}">${c.nivel}</option>`),
-                    'id_estado': estados.map(e => `<option value="${e.id_estado}">${e.nombre}</option>`),
-                    'id_usuario_asignado': usuarios.map(u => `<option value="${u.id_usuario}">${u.nombre} (${u.email})</option>`)
+                    'id_estado': estados.map(e => `<option value="${e.id_estado}">${e.nombre}</option>`)
                 };
+                if (await verifyToken()) {
+                    const usuariosResponse = await fetch('/api/usuarios', { headers: { 'Authorization': `Bearer ${token}` } });
+                    if (usuariosResponse.ok) {
+                        const usuarios = await usuariosResponse.json();
+                        selects['id_usuario_asignado'] = usuarios.map(u => `<option value="${u.id_usuario}">${u.nombre} (${u.email})</option>`).join('');
+                    } else if (usuariosResponse.status === 401) {
+                        logout();
+                        return;
+                    }
+                }
                 Object.entries(selects).forEach(([id, options]) => {
                     const select = document.getElementById(id);
-                    select.innerHTML = '<option value="">Seleccionar...</option>' + options.join('');
+                    select.innerHTML = '<option value="">Seleccionar...</option>' + (options || '');
                 });
             } catch (error) {
                 console.error('Error loading reference data:', error);
                 showAlert(`Error al cargar datos de referencia: ${error.message}`, 'danger');
-                if (error.message.includes('401')) logout();
             }
         }
 
         // Cargar vulnerabilidades
         async function cargarVulnerabilidades() {
-            if (!token) {
-                showAlert('Sesión inválida', 'danger');
-                logout();
-                return;
-            }
+            if (!await verifyToken()) return;
             const loading = document.getElementById('loading');
             const table = document.getElementById('vulnerabilidadesTable');
             loading.style.display = 'block';
@@ -225,6 +245,10 @@
                     headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' } 
                 });
                 console.log('API response status:', response.status);
+                if (response.status === 401) {
+                    logout();
+                    return;
+                }
                 if (!response.ok) throw new Error(`Error en la petición: ${response.status}`);
                 const vulnerabilidades = await response.json();
                 console.log('Vulnerabilities fetched:', vulnerabilidades.length);
@@ -252,13 +276,12 @@
                 console.error('Error loading vulnerabilities:', error);
                 loading.style.display = 'none';
                 showAlert(`Error al cargar vulnerabilidades: ${error.message}`, 'danger');
-                if (error.message.includes('401')) logout();
-                else if (error.message.includes('404') || error.message.includes('500')) showAlert('Error en el servidor. Contacte al administrador.', 'danger');
             }
         }
 
         // Eliminar vulnerabilidad
         async function eliminarVulnerabilidad(id) {
+            if (!await verifyToken()) return;
             if (!confirm('¿Eliminar vulnerabilidad?')) return;
             try {
                 console.log('Deleting vulnerability ID:', id);
@@ -282,6 +305,7 @@
 
         // Editar vulnerabilidad
         async function editarVulnerabilidad(id) {
+            if (!await verifyToken()) return;
             try {
                 console.log('Fetching vulnerability ID:', id);
                 const response = await fetch(`/api/vulnerabilidades/${id}`, { headers: { 'Authorization': `Bearer ${token}` } });
@@ -299,20 +323,20 @@
             } catch (error) {
                 console.error('Error editing vulnerability:', error);
                 showAlert(`Error al cargar datos para edición: ${error.message}`, 'danger');
-                if (error.message.includes('401')) logout();
             }
         }
 
         // Manejo del formulario
         document.getElementById('vulnerabilidadForm').addEventListener('submit', async (e) => {
             e.preventDefault();
+            if (!await verifyToken()) return;
             const data = {
-                id_protocolo: document.getElementById('id_protocolo').value || undefined,
-                id_criticidad: document.getElementById('id_criticidad').value || undefined,
-                id_estado: document.getElementById('id_estado').value || undefined,
-                descripcion: document.getElementById('descripcion').value || undefined,
-                fecha_identificacion: document.getElementById('fecha_identificacion').value || undefined,
-                responsable: document.getElementById('responsable').value || undefined,
+                id_protocolo: document.getElementById('id_protocolo').value || null,
+                id_criticidad: document.getElementById('id_criticidad').value || null,
+                id_estado: document.getElementById('id_estado').value || null,
+                descripcion: document.getElementById('descripcion').value.trim() || null,
+                fecha_identificacion: document.getElementById('fecha_identificacion').value || null,
+                responsable: document.getElementById('responsable').value.trim() || null,
                 id_usuario_asignado: document.getElementById('id_usuario_asignado').value || null
             };
             if (!data.id_protocolo || !data.id_criticidad || !data.id_estado || !data.descripcion || !data.fecha_identificacion) {
@@ -349,11 +373,20 @@
 
         // Inicializar aplicación
         async function inicializarAplicacion() {
-            await cargarDatosReferencia();
-            await cargarVulnerabilidades();
-            document.getElementById('fecha_identificacion').value = new Date().toISOString().split('T')[0];
-            setInterval(cargarVulnerabilidades, 30000); // Refresco cada 30 segundos
-            setInterval(checkServerStatus, 30000); // Revisar estado cada 30 segundos
+            if (!await verifyToken()) return;
+            try {
+                await cargarDatosReferencia();
+                await cargarVulnerabilidades();
+                document.getElementById('fecha_identificacion').value = new Date().toISOString().split('T')[0];
+                const intervalId = setInterval(() => {
+                    if (token) cargarVulnerabilidades();
+                    else clearInterval(intervalId);
+                }, 30000);
+                setInterval(checkServerStatus, 30000);
+            } catch (error) {
+                console.error('Initialization error:', error);
+                showAlert('Error al inicializar la aplicación', 'danger');
+            }
         }
 
         // Event listeners para Enter en login

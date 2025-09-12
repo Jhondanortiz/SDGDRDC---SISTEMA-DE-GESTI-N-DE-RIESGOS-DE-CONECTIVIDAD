@@ -27,14 +27,28 @@
         let token = localStorage.getItem('token') || null;
 
         // Función para verificar autenticación
-        function checkAuth() {
+        async function checkAuth() {
             if (!token) {
                 console.log('No token found, redirecting to login at', new Date().toLocaleString());
                 alert('Por favor, inicie sesión primero.');
                 window.location.href = '/';
                 return false;
             }
-            return true;
+            try {
+                const response = await fetch('/api/verify-token', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (!response.ok && response.status === 401) {
+                    console.log('Token invalid, clearing and redirecting at', new Date().toLocaleString());
+                    localStorage.removeItem('token');
+                    window.location.href = '/';
+                    return false;
+                }
+                return true;
+            } catch (error) {
+                console.error('Error verifying token:', error, 'at', new Date().toLocaleString());
+                return false;
+            }
         }
 
         // Función para mostrar alertas
@@ -51,10 +65,10 @@
             const statsGrid = document.getElementById('statsGrid');
             const chartCanvas = document.getElementById('vulnerabilityChart');
 
-            if (!checkAuth()) return;
+            if (!await checkAuth()) return;
 
             loading.style.display = 'block';
-            statsGrid.innerHTML = loading.outerHTML; // Reemplazar contenido temporalmente
+            statsGrid.style.opacity = '0.5'; // Efecto de carga
             chartCanvas.style.display = 'none';
 
             try {
@@ -63,7 +77,9 @@
                     headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
                 });
                 console.log('API response status:', response.status, 'at', new Date().toLocaleString());
-                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
                 const vulnerabilities = await response.json();
                 console.log('Vulnerabilities data:', JSON.stringify(vulnerabilities), 'at', new Date().toLocaleString());
 
@@ -97,6 +113,7 @@
                     <div class="stat-card"><h3>Crítica</h3><p>${stats.byCriticidad['Crítica'] || 0}</p></div>
                 `;
                 statsGrid.innerHTML = statsHTML;
+                statsGrid.style.opacity = '1';
 
                 // Renderizar gráfico si hay datos
                 if (vulnerabilities.length > 0) {
@@ -138,17 +155,20 @@
                     console.log('Dashboard chart rendered successfully at', new Date().toLocaleString());
                 } else {
                     console.log('No data available for chart at', new Date().toLocaleString());
+                    chartCanvas.style.display = 'none';
                 }
 
                 loading.style.display = 'none';
             } catch (error) {
                 console.error('Error loading dashboard stats:', error, 'at', new Date().toLocaleString());
                 loading.style.display = 'none';
-                showAlert(`Error al cargar las estadísticas: ${error.message}`, 'danger');
+                statsGrid.style.opacity = '1';
                 if (error.message.includes('401')) {
-                    console.log('Unauthorized, clearing token and redirecting at', new Date().toLocaleString());
+                    showAlert('Sesión expirada, redirigiendo al login.', 'danger');
                     localStorage.removeItem('token');
-                    window.location.href = '/';
+                    setTimeout(() => window.location.href = '/', 2000);
+                } else if (error.message.includes('422')) {
+                    showAlert('Error en los datos de vulnerabilidades. Contacte al administrador.', 'danger');
                 } else if (error.message.includes('404') || error.message.includes('500')) {
                     showAlert('Error en el servidor. Contacte al administrador.', 'danger');
                 } else {
