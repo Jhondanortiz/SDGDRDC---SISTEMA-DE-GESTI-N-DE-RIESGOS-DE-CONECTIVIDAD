@@ -409,22 +409,30 @@ def vulnerabilidad_id(id):
             nuevo_estado = data.get('id_estado')
             estado_actual = vulnerabilidad.id_estado
             fecha_ident = vulnerabilidad.fecha_identificacion
+            criticidad = db.session.get(Criticidad, vulnerabilidad.id_criticidad)
 
-            # Validar transiciones
+            # Validar transiciones según reglas de negocio
+            estado_nombres = {'Identificada': 1, 'En análisis': 2, 'En remediación': 3, 'Resuelta': 4, 'Cerrada': 5}
+            estado_actual_nombre = db.session.get(Estado, estado_actual).nombre
+            nuevo_estado_nombre = db.session.get(Estado, int(nuevo_estado)).nombre if nuevo_estado else estado_actual_nombre
+
             if nuevo_estado:
-                estado = db.session.get(Estado, int(nuevo_estado))
-                if not estado:
-                    return jsonify({'error': 'Estado no válido'}), 400
-                estado_nombres = {1: 'Identificada', 2: 'En análisis', 3: 'En remediación', 4: 'Resuelta', 5: 'Cerrada'}
-                estado_actual_nombre = estado_nombres.get(estado_actual, 'Desconocido')
-                if estado.nombre == 'En análisis' and estado_actual_nombre != 'Identificada':
-                    return jsonify({'error': 'Solo de Identificada a En análisis'}), 400
-                elif estado.nombre == 'En remediación' and estado_actual_nombre != 'En análisis':
-                    return jsonify({'error': 'Solo de En análisis a En remediación'}), 400
-                elif estado.nombre == 'Resuelta' and estado_actual_nombre != 'En remediacion':
-                    return jsonify({'error': 'Solo de En remediación a Resuelta'}), 400
-                elif estado.nombre == 'Cerrada' and estado_actual_nombre != 'Resuelta':
-                    return jsonify({'error': 'Solo de Resuelta a Cerrada'}), 400
+                if nuevo_estado_nombre == 'En análisis' and estado_actual_nombre != 'Identificada':
+                    return jsonify({'error': 'Solo se puede pasar de Identificada a En análisis'}), 400
+                elif nuevo_estado_nombre == 'En remediación' and estado_actual_nombre != 'En análisis':
+                    return jsonify({'error': 'Solo se puede pasar de En análisis a En remediación'}), 400
+                elif nuevo_estado_nombre == 'En remediación' and criticidad.nivel not in ['Media', 'Alta', 'Crítica']:
+                    return jsonify({'error': 'La criticidad debe ser Media o superior para En remediación'}), 400
+                elif nuevo_estado_nombre == 'Resuelta' and estado_actual_nombre != 'En remediación':
+                    return jsonify({'error': 'Solo se puede pasar de En remediación a Resuelta'}), 400
+                elif nuevo_estado_nombre == 'Resuelta' and (date.today() - fecha_ident).days < 30:
+                    return jsonify({'error': 'Deben pasar al menos 30 días desde la identificación para marcar como Resuelta'}), 400
+                elif nuevo_estado_nombre == 'Cerrada' and estado_actual_nombre != 'Resuelta':
+                    return jsonify({'error': 'Solo se puede pasar de Resuelta a Cerrada'}), 400
+                elif nuevo_estado_nombre == 'Cerrada':
+                    ultimo_seguimiento = db.session.query(Seguimiento).filter_by(id_vulnerabilidad=id).order_by(Seguimiento.fecha_accion.desc()).first()
+                    if ultimo_seguimiento and (datetime.utcnow() - ultimo_seguimiento.fecha_accion).days < 7:
+                        return jsonify({'error': 'Deben pasar 7 días sin cambios para cerrar'}), 400
 
             vulnerabilidad.id_protocolo = int(data.get('id_protocolo', vulnerabilidad.id_protocolo))
             vulnerabilidad.id_criticidad = int(data.get('id_criticidad', vulnerabilidad.id_criticidad))
@@ -438,9 +446,9 @@ def vulnerabilidad_id(id):
             if nuevo_estado and int(nuevo_estado) != estado_actual:
                 seguimiento = Seguimiento(
                     id_vulnerabilidad=id,
-                    accion=f"Cambio a {estado.nombre}",
+                    accion=f"Cambio a {nuevo_estado_nombre}",
                     id_usuario=current_user_id,
-                    comentarios=data.get('comentarios')
+                    comentarios=data.get('comentarios', 'Sin comentarios')
                 )
                 db.session.add(seguimiento)
             db.session.commit()
@@ -466,6 +474,67 @@ def vulnerabilidad_id(id):
         except Exception as e:
             db.session.rollback()
             logger.error(f"Error eliminando: {str(e)}", exc_info=True)
+            return jsonify({'error': 'Error interno', 'details': str(e)}), 500
+
+@app.route('/api/seguimientos', methods=['GET', 'POST'])
+@jwt_required()
+def seguimientos():
+    current_user_id = get_jwt_identity()
+    logger.info(f"Solicitud a /api/seguimientos - Método: {request.method} - Usuario: {current_user_id}")
+
+    if request.method == 'POST':
+        logger.info(f"Procesando POST para usuario: {current_user_id} - Datos recibidos: {request.get_json() or request.form.to_dict()}")
+        try:
+            data = request.get_json() or request.form.to_dict()
+            required_fields = ['id_vulnerabilidad', 'accion', 'id_usuario']
+            if not all(field in data for field in required_fields):
+                return jsonify({'error': 'Faltan campos obligatorios: id_vulnerabilidad, accion, id_usuario'}), 400
+
+            nuevo_seguimiento = Seguimiento(
+                id_vulnerabilidad=int(data['id_vulnerabilidad']),
+                accion=data['accion'],
+                id_usuario=int(data['id_usuario']),
+                comentarios=data.get('comentarios', '')
+            )
+            db.session.add(nuevo_seguimiento)
+            db.session.commit()
+            logger.info(f"Seguimiento creado con ID: {nuevo_seguimiento.id_seguimiento}")
+            return jsonify({'message': 'Seguimiento creado', 'id': nuevo_seguimiento.id_seguimiento}), 201
+        except (ValueError, TypeError) as e:
+            db.session.rollback()
+            logger.error(f"Error de valor: {str(e)}", exc_info=True)
+            return jsonify({'error': 'Datos inválidos', 'details': str(e)}), 422
+        except IntegrityError as e:
+            db.session.rollback()
+            logger.error(f"Error de integridad: {str(e)}", exc_info=True)
+            return jsonify({'error': 'Error de integridad', 'details': str(e)}), 400
+        except Exception as e:
+            db.session.rollback()
+            logger.error(f"Error interno: {str(e)}", exc_info=True)
+            return jsonify({'error': 'Error interno', 'details': str(e)}), 500
+
+    elif request.method == 'GET':
+        logger.info(f"Procesando GET para usuario: {current_user_id}")
+        try:
+            seguimientos = db.session.execute(
+                db.select(Seguimiento, Vulnerabilidad.descripcion.label('vulnerabilidad_descripcion'), Usuario.nombre.label('usuario_nombre'))
+                .join(Vulnerabilidad)
+                .join(Usuario)
+            ).all()
+            resultado = [{
+                'id_seguimiento': s[0].id_seguimiento,
+                'id_vulnerabilidad': s[0].id_vulnerabilidad,
+                'accion': s[0].accion,
+                'fecha_accion': s[0].fecha_accion.strftime('%Y-%m-%d %H:%M:%S'),
+                'id_usuario': s[0].id_usuario,
+                'comentarios': s[0].comentarios,
+                'vulnerabilidad_descripcion': s[1],
+                'usuario_nombre': s[2]
+            } for s in seguimientos]
+            logger.info(f"Devolviendo {len(resultado)} seguimientos")
+            return jsonify(resultado), 200
+        except Exception as e:
+            logger.error(f"Error obteniendo seguimientos: {str(e)}", exc_info=True)
             return jsonify({'error': 'Error interno', 'details': str(e)}), 500
 
 @app.route('/api/protocolos', methods=['GET'])

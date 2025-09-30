@@ -87,6 +87,14 @@
                             <option value="">Sin asignar</option>
                         </select>
                     </div>
+                    <!-- Nuevo formulario de seguimiento -->
+                    <div class="form-group" id="seguimientoFormGroup" style="display:none;">
+                        <label for="accion">📋 Acción:</label>
+                        <input type="text" name="accion" id="accion" class="form-control" maxlength="100" placeholder="Descripción de la acción...">
+                        <label for="comentarios">💬 Comentarios:</label>
+                        <textarea name="comentarios" id="comentarios" class="form-control" maxlength="500" placeholder="Comentarios adicionales (máx. 500 caracteres)..."></textarea>
+                        <button type="button" onclick="agregarSeguimiento()" class="btn btn-small btn-success" aria-label="Agregar Seguimiento">➕ Agregar Seguimiento</button>
+                    </div>
                     <button type="submit" class="btn btn-primary" aria-label="Crear o Actualizar Vulnerabilidad">🚀 Crear/Actualizar Vulnerabilidad</button>
                 </form>
             </section>
@@ -291,6 +299,7 @@
                             <td>
                                 <button class="btn-small btn-warning" onclick="editarVulnerabilidad(${v.id_vulnerabilidad})" aria-label="Editar">✏️</button>
                                 <button class="btn-small btn-danger" onclick="eliminarVulnerabilidad(${v.id_vulnerabilidad})" aria-label="Eliminar">🗑️</button>
+                                <button class="btn-small btn-info" onclick="mostrarSeguimientoForm(${v.id_vulnerabilidad})" aria-label="Agregar Seguimiento">📝</button>
                             </td>
                         </tr>
                     `).join('');
@@ -342,6 +351,7 @@
                 });
                 const submitButton = document.querySelector('#vulnerabilidadForm button[type="submit"]');
                 if (submitButton) submitButton.textContent = '🚀 Actualizar Vulnerabilidad';
+                document.getElementById('seguimientoFormGroup').style.display = 'block'; // Mostrar formulario de seguimiento al editar
             } catch (error) {
                 console.error('Error al editar vulnerabilidad:', error);
                 showAlert(`Error al cargar datos: ${error.message}`, 'danger');
@@ -364,6 +374,56 @@
                 showAlert('Complete todos los campos obligatorios', 'danger');
                 return;
             }
+
+            // Validar transiciones de estado
+            if (currentEditId) {
+                try {
+                    const response = await fetch(`/api/vulnerabilidades/${currentEditId}`, {
+                        headers: { 'Authorization': `Bearer ${window.token}` }
+                    });
+                    const vuln = await response.json();
+                    const oldEstado = vuln.id_estado;
+                    const newEstado = parseInt(data.id_estado);
+                    const criticidadResponse = await fetch(`/api/criticidades/${data.id_criticidad}`, {
+                        headers: { 'Authorization': `Bearer ${window.token}` }
+                    });
+                    const criticidad = await criticidadResponse.json();
+                    const estadoNombres = {1: 'Identificada', 2: 'En análisis', 3: 'En remediación', 4: 'Resuelta', 5: 'Cerrada'};
+                    const oldEstadoNombre = estadoNombres[oldEstado];
+                    const newEstadoNombre = estadoNombres[newEstado];
+
+                    if (newEstadoNombre === 'En análisis' && oldEstadoNombre !== 'Identificada') {
+                        showAlert('Solo se puede pasar de Identificada a En análisis', 'danger');
+                        return;
+                    }
+                    if (newEstadoNombre === 'En remediación' && oldEstadoNombre !== 'En análisis') {
+                        showAlert('Solo se puede pasar de En análisis a En remediación', 'danger');
+                        return;
+                    }
+                    if (newEstadoNombre === 'En remediacion' && ['Baja'].includes(criticidad.nivel)) {
+                        showAlert('La criticidad debe ser Media o superior para En remediación', 'danger');
+                        return;
+                    }
+                    if (newEstadoNombre === 'Resuelta' && oldEstadoNombre !== 'En remediación') {
+                        showAlert('Solo se puede pasar de En remediación a Resuelta', 'danger');
+                        return;
+                    }
+                    const fechaIdent = new Date(data.fecha_identificacion);
+                    if (newEstadoNombre === 'Resuelta' && (Date.now() - fechaIdent) / (1000 * 60 * 60 * 24) < 30) {
+                        showAlert('Deben pasar al menos 30 días desde la identificación para marcar como Resuelta', 'danger');
+                        return;
+                    }
+                    if (newEstadoNombre === 'Cerrada' && oldEstadoNombre !== 'Resuelta') {
+                        showAlert('Solo se puede pasar de Resuelta a Cerrada', 'danger');
+                        return;
+                    }
+                } catch (error) {
+                    console.error('Error al validar transición:', error);
+                    showAlert('Error al validar el estado', 'danger');
+                    return;
+                }
+            }
+
             const url = currentEditId ? `/api/vulnerabilidades/${currentEditId}` : '/api/vulnerabilidades';
             const method = currentEditId ? 'PUT' : 'POST';
 
@@ -381,6 +441,7 @@
                     const submitButton = document.querySelector('#vulnerabilidadForm button[type="submit"]');
                     if (submitButton) submitButton.textContent = '🚀 Crear/Actualizar Vulnerabilidad';
                     currentEditId = null;
+                    document.getElementById('seguimientoFormGroup').style.display = 'none';
                     cargarVulnerabilidades();
                 } else {
                     showAlert(result.error || 'Error en la operación', 'danger');
@@ -390,6 +451,52 @@
                 showAlert('Error en la operación', 'danger');
             }
         });
+
+        async function agregarSeguimiento() {
+            if (!await verifyToken()) return;
+            const idVulnerabilidad = currentEditId;
+            if (!idVulnerabilidad) {
+                showAlert('Debe seleccionar una vulnerabilidad para agregar un seguimiento', 'danger');
+                return;
+            }
+            const accion = document.getElementById('accion').value.trim();
+            const comentarios = document.getElementById('comentarios').value.trim();
+            const idUsuario = get_jwt_identity(); // Suponiendo que puedes obtener el ID del usuario autenticado
+
+            if (!accion) {
+                showAlert('El campo Acción es obligatorio', 'danger');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/seguimientos', {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${window.token}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        id_vulnerabilidad: idVulnerabilidad,
+                        accion: accion,
+                        id_usuario: idUsuario,
+                        comentarios: comentarios
+                    })
+                });
+                const result = await response.json();
+                if (response.ok) {
+                    showAlert('Seguimiento agregado con éxito', 'success');
+                    document.getElementById('accion').value = '';
+                    document.getElementById('comentarios').value = '';
+                } else {
+                    showAlert(result.error || 'Error al agregar seguimiento', 'danger');
+                }
+            } catch (error) {
+                console.error('Error al agregar seguimiento:', error);
+                showAlert('Error al agregar seguimiento', 'danger');
+            }
+        }
+
+        function mostrarSeguimientoForm(id) {
+            currentEditId = id;
+            document.getElementById('seguimientoFormGroup').style.display = 'block';
+        }
 
         async function loadSection(section) {
             console.log('Cargando sección:', section, 'con token:', window.token ? 'presente' : 'ausente');
