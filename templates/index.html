@@ -5,123 +5,136 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SDGDRDC - Sistema de Gestión de Riesgos</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    <script>
+        // Declaración global de token
+        window.token = localStorage.getItem('token') || null;
+    </script>
 </head>
 <body>
-    <!-- Sección de Login -->
-    <div class="container" id="loginSection">
-        <h1>🔐 SDGDRDC - Inicio de Sesión</h1>
-        <div class="login-section">
-            <div id="loginAlert"></div>
-            <div class="form-group">
-                <label for="loginEmail">📧 Email:</label>
-                <input type="email" id="loginEmail" value="admin@uniminuto.edu" required>
+    <header>
+        <h1 class="logo">🔐 SDGDRDC</h1>
+    </header>
+    <main>
+        <!-- Sección de Login -->
+        <section class="container" id="loginSection" aria-live="polite">
+            <h2>Inicio de Sesión</h2>
+            <div class="login-section" role="form">
+                <div id="loginAlert"></div>
+                <div class="form-group">
+                    <label for="loginEmail">📧 Email:</label>
+                    <input type="email" id="loginEmail" value="admin@uniminuto.edu" required aria-required="true">
+                </div>
+                <div class="form-group">
+                    <label for="loginPassword">🔑 Contraseña:</label>
+                    <input type="password" id="loginPassword" value="admin123" required aria-required="true">
+                </div>
+                <button type="button" onclick="login()" class="btn btn-primary" aria-label="Iniciar Sesión">🚀 Iniciar Sesión</button>
+                <div class="status">
+                    <small>Estado del servidor: <span class="status-indicator" id="serverStatus"></span><span id="serverStatusText">Verificando...</span></small>
+                </div>
             </div>
-            <div class="form-group">
-                <label for="loginPassword">🔑 Contraseña:</label>
-                <input type="password" id="loginPassword" value="admin123" required>
-            </div>
-            <button onclick="login()">🚀 Iniciar Sesión</button>
-            <div style="margin-top: 10px;">
-                <small>Estado del servidor: <span class="status-indicator" id="serverStatus"></span><span id="serverStatusText">Verificando...</span></small>
-            </div>
-        </div>
-    </div>
+        </section>
 
-    <!-- Sección Principal -->
-    <div class="container hidden" id="mainSection">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-            <h1>📊 SDGDRDC - Sistema de Gestión de Riesgos de Conectividad</h1>
-            <div>
-                <button onclick="window.location.href='/dashboard'" class="btn btn-small btn-warning">📈 Dashboard</button>
-                <button onclick="window.location.href='/reports'" class="btn btn-small btn-warning">📋 Reportes</button>
-                <button onclick="logout()" class="btn btn-danger">🚪 Cerrar Sesión</button>
-            </div>
-        </div>
-        
-        <div id="alertContainer"></div>
-        
-        <h2>➕ Crear/Actualizar Vulnerabilidad</h2>
-        <form id="vulnerabilidadForm">
-            <div class="form-group">
-                <label for="id_protocolo">🔗 Protocolo:</label>
-                <select name="id_protocolo" id="id_protocolo" class="form-control" required>
-                    <option value="">Seleccionar protocolo...</option>
-                </select>
-            </div>
-            <div class="form-group">
-                <label for="id_criticidad">⚠️ Criticidad:</label>
-                <select name="id_criticidad" id="id_criticidad" class="form-control" required>
-                    <option value="">Seleccionar criticidad...</option>
-                </select>
-            </div>
-            <div class="form-group">
-                <label for="id_estado">📋 Estado:</label>
-                <select name="id_estado" id="id_estado" class="form-control" required>
-                    <option value="">Seleccionar estado...</option>
-                </select>
-            </div>
-            <div class="form-group">
-                <label for="descripcion">📝 Descripción:</label>
-                <textarea name="descripcion" id="descripcion" class="form-control" maxlength="500" placeholder="Describa detalladamente (máx. 500 caracteres)..." required></textarea>
-            </div>
-            <div class="form-group">
-                <label for="fecha_identificacion">📅 Fecha de Identificación:</label>
-                <input type="date" name="fecha_identificacion" id="fecha_identificacion" class="form-control" required>
-            </div>
-            <div class="form-group">
-                <label for="responsable">👤 Responsable:</label>
-                <input type="text" name="responsable" id="responsable" class="form-control" maxlength="100">
-            </div>
-            <div class="form-group">
-                <label for="id_usuario_asignado">👥 Usuario Asignado:</label>
-                <select name="id_usuario_asignado" id="id_usuario_asignado" class="form-control">
-                    <option value="">Sin asignar</option>
-                </select>
-            </div>
-            <button type="submit" class="btn">🚀 Crear/Actualizar Vulnerabilidad</button>
-        </form>
+        <!-- Sección Principal -->
+        <section class="container hidden" id="mainSection" aria-live="polite">
+            <header class="main-header">
+                <h2>📊 Sistema de Gestión de Riesgos de Conectividad</h2>
+                <div class="nav-buttons">
+                    <button onclick="loadSection('dashboard')" class="btn btn-small btn-warning" aria-label="Ir al Dashboard">📈 Dashboard</button>
+                    <button onclick="loadSection('reports')" class="btn btn-small btn-warning" aria-label="Ver Reportes">📋 Reportes</button>
+                    <button type="button" onclick="logout()" class="btn btn-danger" aria-label="Cerrar Sesión">🚪 Cerrar Sesión</button>
+                </div>
+            </header>
+            
+            <div id="alertContainer" role="alert"></div>
+            
+            <section class="form-section" id="vulnerabilitiesFormSection">
+                <h3>➕ Crear/Actualizar Vulnerabilidad</h3>
+                <form id="vulnerabilidadForm" aria-label="Formulario de Vulnerabilidad">
+                    <div class="form-group">
+                        <label for="id_protocolo">🔗 Protocolo:</label>
+                        <select name="id_protocolo" id="id_protocolo" class="form-control" required aria-required="true">
+                            <option value="">Seleccionar protocolo...</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="id_criticidad">⚠️ Criticidad:</label>
+                        <select name="id_criticidad" id="id_criticidad" class="form-control" required aria-required="true">
+                            <option value="">Seleccionar criticidad...</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="id_estado">📋 Estado:</label>
+                        <select name="id_estado" id="id_estado" class="form-control" required aria-required="true">
+                            <option value="">Seleccionar estado...</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="descripcion">📝 Descripción:</label>
+                        <textarea name="descripcion" id="descripcion" class="form-control" maxlength="500" placeholder="Describa detalladamente (máx. 500 caracteres)..." required aria-required="true"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="fecha_identificacion">📅 Fecha de Identificación:</label>
+                        <input type="date" name="fecha_identificacion" id="fecha_identificacion" class="form-control" required aria-required="true">
+                    </div>
+                    <div class="form-group">
+                        <label for="responsable">👤 Responsable:</label>
+                        <input type="text" name="responsable" id="responsable" class="form-control" maxlength="100">
+                    </div>
+                    <div class="form-group">
+                        <label for="id_usuario_asignado">👥 Usuario Asignado:</label>
+                        <select name="id_usuario_asignado" id="id_usuario_asignado" class="form-control">
+                            <option value="">Sin asignar</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="btn btn-primary" aria-label="Crear o Actualizar Vulnerabilidad">🚀 Crear/Actualizar Vulnerabilidad</button>
+                </form>
+            </section>
 
-        <div class="container" id="vulnerabilidadesSection">
-            <h2>📊 Lista de Vulnerabilidades</h2>
-            <div class="loading" id="loading">Cargando vulnerabilidades...</div>
-            <table id="vulnerabilidadesTable" style="display: none;">
-                <thead>
-                    <tr>
-                        <th>ID</th>
-                        <th>Protocolo</th>
-                        <th>Criticidad</th>
-                        <th>Estado</th>
-                        <th>Descripción</th>
-                        <th>Fecha</th>
-                        <th>Responsable</th>
-                        <th>Usuario Asignado</th>
-                        <th>Acciones</th>
-                    </tr>
-                </thead>
-                <tbody id="vulnerabilidadesBody"></tbody>
-            </table>
-        </div>
-    </div>
+            <section class="vulnerabilities-section" id="vulnerabilitiesSection">
+                <h3>📊 Lista de Vulnerabilidades</h3>
+                <div class="loading" id="loading" aria-live="polite">Cargando vulnerabilidades...</div>
+                <table id="vulnerabilidadesTable" class="table" style="display: none;">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Protocolo</th>
+                            <th>Criticidad</th>
+                            <th>Estado</th>
+                            <th>Descripción</th>
+                            <th>Fecha</th>
+                            <th>Responsable</th>
+                            <th>Usuario Asignado</th>
+                            <th>Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody id="vulnerabilidadesBody"></tbody>
+                </table>
+                <div id="dynamicContent" class="content-section"></div>
+            </section>
+        </section>
+    </main>
 
     <script>
-        let token = null;
         let currentEditId = null;
 
-        // Verificar estado del servidor
         async function checkServerStatus() {
             try {
                 const response = await fetch('/api/protocolos');
-                document.getElementById('serverStatus').className = response.ok ? 'status-indicator status-connected' : 'status-indicator status-disconnected';
-                document.getElementById('serverStatusText').textContent = response.ok ? 'Conectado ✓' : 'Desconectado ✗';
+                const statusElement = document.getElementById('serverStatus');
+                const textElement = document.getElementById('serverStatusText');
+                if (statusElement && textElement) {
+                    statusElement.className = response.ok ? 'status-indicator status-connected' : 'status-indicator status-disconnected';
+                    textElement.textContent = response.ok ? 'Conectado ✓' : 'Desconectado ✗';
+                }
                 return response.ok;
-            } catch {
-                document.getElementById('serverStatus').className = 'status-indicator status-disconnected';
-                document.getElementById('serverStatusText').textContent = 'Desconectado ✗';
-                return false;
+            } catch (error) {
+                console.error('Verificación del estado del servidor falló, reintentando...', error);
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                return await checkServerStatus();
             }
         }
 
-        // Login
         async function login() {
             const email = document.getElementById('loginEmail').value;
             const password = document.getElementById('loginPassword').value;
@@ -130,18 +143,18 @@
                 return;
             }
             try {
-                console.log('Attempting login with email:', email);
                 const response = await fetch('/login', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ email, contraseña: password })
+                    body: JSON.stringify({ email, password })
                 });
                 const result = await response.json();
-                console.log('Login response:', response.status, result);
+                console.log('Respuesta de login:', result);
                 if (response.ok && result.token) {
-                    token = result.token;
-                    localStorage.setItem('token', token);
-                    showLoginAlert('Login exitoso!', 'success');
+                    window.token = result.token;
+                    localStorage.setItem('token', window.token);
+                    console.log('Token guardado:', window.token.substring(0, 10) + '...');
+                    showLoginAlert('¡Inicio de sesión exitoso!', 'success');
                     setTimeout(() => {
                         document.getElementById('loginSection').classList.add('hidden');
                         document.getElementById('mainSection').classList.remove('hidden');
@@ -151,54 +164,66 @@
                     showLoginAlert(result.error || 'Credenciales inválidas', 'danger');
                 }
             } catch (error) {
-                console.error('Login error:', error);
+                console.error('Error en el login:', error);
                 showLoginAlert('Error de conexión', 'danger');
             }
         }
 
-        // Logout
         function logout() {
-            token = null;
+            window.token = null;
             localStorage.removeItem('token');
             document.getElementById('loginSection').classList.remove('hidden');
             document.getElementById('mainSection').classList.add('hidden');
             document.getElementById('loginAlert').innerHTML = '';
             document.getElementById('alertContainer').innerHTML = '';
+            document.getElementById('dynamicContent').innerHTML = '';
             showLoginAlert('Sesión cerrada', 'success');
         }
 
-        // Alertas
         function showLoginAlert(message, type) {
             const alert = document.getElementById('loginAlert');
-            alert.innerHTML = `<div class="alert ${type === 'success' ? 'alert-success' : 'alert-danger'}">${message}</div>`;
-            setTimeout(() => alert.innerHTML = '', 5000);
+            if (alert) {
+                alert.innerHTML = `<div class="alert alert-${type}">${message}</div>`;
+                setTimeout(() => alert.innerHTML = '', 5000);
+            }
         }
 
         function showAlert(message, type) {
             const alert = document.getElementById('alertContainer');
-            alert.innerHTML = `<div class="alert ${type === 'success' ? 'alert-success' : 'alert-danger'}">${message}</div>`;
-            setTimeout(() => alert.innerHTML = '', 5000);
+            if (alert) {
+                alert.innerHTML = `<div class="alert alert-${type}">${message}</div>`;
+                setTimeout(() => alert.innerHTML = '', 5000);
+            }
         }
 
-        // Verificar token
         async function verifyToken() {
-            if (!token) return false;
+            if (!window.token) {
+                console.log('No hay token disponible');
+                return false;
+            }
             try {
-                const response = await fetch('/api/verify-token', { headers: { 'Authorization': `Bearer ${token}` } });
+                const response = await fetch('/api/verify-token', {
+                    headers: { 'Authorization': `Bearer ${window.token}` }
+                });
+                console.log('Respuesta de verificación de token:', response.status);
                 if (response.status === 401) {
                     logout();
                     return false;
                 }
-                if (!response.ok) throw new Error(`Error en verificación: ${response.status}`);
+                const data = await response.json();
+                if (!data.valid) {
+                    if (data.message !== 'No autenticado, usa /login para obtener un token') {
+                        logout();
+                    }
+                    return false;
+                }
                 return true;
             } catch (error) {
-                console.error('Token verification error:', error);
-                logout();
+                console.error('Fallo en la verificación del token:', error);
                 return false;
             }
         }
 
-        // Cargar datos de referencia
         async function cargarDatosReferencia() {
             if (!await verifyToken()) return;
             try {
@@ -213,129 +238,125 @@
                     'id_estado': estados.map(e => `<option value="${e.id_estado}">${e.nombre}</option>`)
                 };
                 if (await verifyToken()) {
-                    const usuariosResponse = await fetch('/api/usuarios', { headers: { 'Authorization': `Bearer ${token}` } });
+                    const usuariosResponse = await fetch('/api/usuarios', {
+                        headers: { 'Authorization': `Bearer ${window.token}` }
+                    });
                     if (usuariosResponse.ok) {
                         const usuarios = await usuariosResponse.json();
                         selects['id_usuario_asignado'] = usuarios.map(u => `<option value="${u.id_usuario}">${u.nombre} (${u.email})</option>`).join('');
-                    } else if (usuariosResponse.status === 401) {
-                        logout();
-                        return;
                     }
                 }
                 Object.entries(selects).forEach(([id, options]) => {
                     const select = document.getElementById(id);
-                    select.innerHTML = '<option value="">Seleccionar...</option>' + (options || '');
+                    if (select) {
+                        select.innerHTML = '<option value="">Seleccionar...</option>' + (options || '');
+                    }
                 });
             } catch (error) {
-                console.error('Error loading reference data:', error);
-                showAlert(`Error al cargar datos de referencia: ${error.message}`, 'danger');
+                console.error('Error al cargar datos de referencia:', error);
+                showAlert(`Error al cargar datos: ${error.message}`, 'danger');
             }
         }
 
-        // Cargar vulnerabilidades
         async function cargarVulnerabilidades() {
             if (!await verifyToken()) return;
             const loading = document.getElementById('loading');
             const table = document.getElementById('vulnerabilidadesTable');
-            loading.style.display = 'block';
-            table.style.display = 'none';
+            if (loading && table) {
+                loading.style.display = 'block';
+                table.style.display = 'none';
+            }
             try {
-                console.log('Fetching vulnerabilities with token:', token.substring(0, 10) + '...');
-                const response = await fetch('/api/vulnerabilidades', { 
-                    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' } 
+                const response = await fetch('/api/vulnerabilidades', {
+                    headers: { 'Authorization': `Bearer ${window.token}` }
                 });
-                console.log('API response status:', response.status);
                 if (response.status === 401) {
                     logout();
                     return;
                 }
-                if (!response.ok) throw new Error(`Error en la petición: ${response.status}`);
+                if (!response.ok) throw new Error(`Error HTTP! Estado: ${response.status}`);
                 const vulnerabilidades = await response.json();
-                console.log('Vulnerabilities fetched:', vulnerabilidades.length);
                 const tbody = document.getElementById('vulnerabilidadesBody');
-                tbody.innerHTML = vulnerabilidades.map(v => `
-                    <tr>
-                        <td>${v.id_vulnerabilidad || 'N/A'}</td>
-                        <td>${v.protocolo_nombre || 'Desconocido'}</td>
-                        <td><span class="criticidad-${(v.criticidad_nombre || '').toLowerCase().replace(' ', '-')}">${v.criticidad_nombre || 'Sin asignar'}</span></td>
-                        <td><span class="estado-${(v.estado_nombre || '').toLowerCase().replace(' ', '-')}">${v.estado_nombre || 'Sin asignar'}</span></td>
-                        <td title="${v.descripcion || ''}">${(v.descripcion || '').substring(0, 50)}${(v.descripcion || '').length > 50 ? '...' : ''}</td>
-                        <td>${v.fecha_identificacion || 'N/A'}</td>
-                        <td>${v.responsable || 'Sin asignar'}</td>
-                        <td>${v.usuario_nombre || 'Sin asignar'}</td>
-                        <td>
-                            <button class="btn-small btn-warning" onclick="editarVulnerabilidad(${v.id_vulnerabilidad})">✏️</button>
-                            <button class="btn-small btn-danger" onclick="eliminarVulnerabilidad(${v.id_vulnerabilidad})">🗑️</button>
-                        </td>
-                    </tr>
-                `).join('');
-                loading.style.display = 'none';
-                table.style.display = 'table';
-                if (vulnerabilidades.length === 0) tbody.innerHTML = '<tr><td colspan="9">No hay vulnerabilidades</td></tr>';
+                if (tbody && table) {
+                    tbody.innerHTML = vulnerabilidades.map(v => `
+                        <tr>
+                            <td>${v.id_vulnerabilidad || 'N/A'}</td>
+                            <td>${v.protocolo_nombre || 'Desconocido'}</td>
+                            <td><span class="criticidad-${(v.criticidad_nombre || '').toLowerCase().replace(' ', '-')}">${v.criticidad_nombre || 'Sin asignar'}</span></td>
+                            <td><span class="estado-${(v.estado_nombre || '').toLowerCase().replace(' ', '-')}">${v.estado_nombre || 'Sin asignar'}</span></td>
+                            <td title="${v.descripcion || ''}">${(v.descripcion || '').substring(0, 50)}${(v.descripcion || '').length > 50 ? '...' : ''}</td>
+                            <td>${v.fecha_identificacion || 'N/A'}</td>
+                            <td>${v.responsable || 'Sin asignar'}</td>
+                            <td>${v.usuario_nombre || 'Sin asignar'}</td>
+                            <td>
+                                <button class="btn-small btn-warning" onclick="editarVulnerabilidad(${v.id_vulnerabilidad})" aria-label="Editar">✏️</button>
+                                <button class="btn-small btn-danger" onclick="eliminarVulnerabilidad(${v.id_vulnerabilidad})" aria-label="Eliminar">🗑️</button>
+                            </td>
+                        </tr>
+                    `).join('');
+                    loading.style.display = 'none';
+                    table.style.display = 'table';
+                    if (vulnerabilidades.length === 0) tbody.innerHTML = '<tr><td colspan="9">No hay vulnerabilidades</td></tr>';
+                }
             } catch (error) {
-                console.error('Error loading vulnerabilities:', error);
-                loading.style.display = 'none';
+                console.error('Error al cargar vulnerabilidades:', error);
+                if (loading) loading.style.display = 'none';
                 showAlert(`Error al cargar vulnerabilidades: ${error.message}`, 'danger');
             }
         }
 
-        // Eliminar vulnerabilidad
         async function eliminarVulnerabilidad(id) {
             if (!await verifyToken()) return;
             if (!confirm('¿Eliminar vulnerabilidad?')) return;
             try {
-                console.log('Deleting vulnerability ID:', id);
-                const response = await fetch(`/api/vulnerabilidades/${id}`, { 
-                    method: 'DELETE', 
-                    headers: { 'Authorization': `Bearer ${token}` } 
+                const response = await fetch(`/api/vulnerabilidades/${id}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${window.token}` }
                 });
-                console.log('Delete response status:', response.status);
                 if (response.ok) {
                     showAlert('Vulnerabilidad eliminada', 'success');
                     cargarVulnerabilidades();
                 } else {
                     const error = await response.json();
-                    showAlert(error.error || 'Error al eliminar la vulnerabilidad', 'danger');
+                    showAlert(error.error || 'Error al eliminar', 'danger');
                 }
             } catch (error) {
-                console.error('Error deleting vulnerability:', error);
+                console.error('Error al eliminar vulnerabilidad:', error);
                 showAlert('Error al eliminar', 'danger');
             }
         }
 
-        // Editar vulnerabilidad
         async function editarVulnerabilidad(id) {
             if (!await verifyToken()) return;
             try {
-                console.log('Fetching vulnerability ID:', id);
-                const response = await fetch(`/api/vulnerabilidades/${id}`, { headers: { 'Authorization': `Bearer ${token}` } });
-                if (!response.ok) throw new Error(`Error al obtener datos: ${response.status}`);
+                const response = await fetch(`/api/vulnerabilidades/${id}`, {
+                    headers: { 'Authorization': `Bearer ${window.token}` }
+                });
+                if (!response.ok) throw new Error(`Error HTTP! Estado: ${response.status}`);
                 const vuln = await response.json();
                 currentEditId = id;
-                document.getElementById('id_protocolo').value = vuln.id_protocolo || '';
-                document.getElementById('id_criticidad').value = vuln.id_criticidad || '';
-                document.getElementById('id_estado').value = vuln.id_estado || '';
-                document.getElementById('descripcion').value = vuln.descripcion || '';
-                document.getElementById('fecha_identificacion').value = vuln.fecha_identificacion || new Date().toISOString().split('T')[0];
-                document.getElementById('responsable').value = vuln.responsable || '';
-                document.getElementById('id_usuario_asignado').value = vuln.id_usuario_asignado || '';
-                document.querySelector('#vulnerabilidadForm button').textContent = '🚀 Actualizar Vulnerabilidad';
+                const fields = ['id_protocolo', 'id_criticidad', 'id_estado', 'descripcion', 'fecha_identificacion', 'responsable', 'id_usuario_asignado'];
+                fields.forEach(field => {
+                    const element = document.getElementById(field);
+                    if (element) element.value = vuln[field] || (field === 'fecha_identificacion' ? new Date(vuln.fecha_identificacion).toISOString().split('T')[0] : '');
+                });
+                const submitButton = document.querySelector('#vulnerabilidadForm button[type="submit"]');
+                if (submitButton) submitButton.textContent = '🚀 Actualizar Vulnerabilidad';
             } catch (error) {
-                console.error('Error editing vulnerability:', error);
-                showAlert(`Error al cargar datos para edición: ${error.message}`, 'danger');
+                console.error('Error al editar vulnerabilidad:', error);
+                showAlert(`Error al cargar datos: ${error.message}`, 'danger');
             }
         }
 
-        // Manejo del formulario
         document.getElementById('vulnerabilidadForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             if (!await verifyToken()) return;
             const data = {
-                id_protocolo: document.getElementById('id_protocolo').value || null,
-                id_criticidad: document.getElementById('id_criticidad').value || null,
-                id_estado: document.getElementById('id_estado').value || null,
-                descripcion: document.getElementById('descripcion').value.trim() || null,
-                fecha_identificacion: document.getElementById('fecha_identificacion').value || null,
+                id_protocolo: document.getElementById('id_protocolo').value,
+                id_criticidad: document.getElementById('id_criticidad').value,
+                id_estado: document.getElementById('id_estado').value,
+                descripcion: document.getElementById('descripcion').value.trim(),
+                fecha_identificacion: document.getElementById('fecha_identificacion').value,
                 responsable: document.getElementById('responsable').value.trim() || null,
                 id_usuario_asignado: document.getElementById('id_usuario_asignado').value || null
             };
@@ -347,61 +368,114 @@
             const method = currentEditId ? 'PUT' : 'POST';
 
             try {
-                console.log('Submitting form with method:', method, 'data:', data);
                 const response = await fetch(url, {
                     method,
-                    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                    headers: { 'Authorization': `Bearer ${window.token}`, 'Content-Type': 'application/json' },
                     body: JSON.stringify(data)
                 });
                 const result = await response.json();
-                console.log('Form response:', response.status, result);
                 if (response.ok) {
                     showAlert(`Vulnerabilidad ${currentEditId ? 'actualizada' : 'creada'} con ID: ${result.id || currentEditId}`, 'success');
                     document.getElementById('vulnerabilidadForm').reset();
                     document.getElementById('fecha_identificacion').value = new Date().toISOString().split('T')[0];
-                    document.querySelector('#vulnerabilidadForm button').textContent = '🚀 Crear/Actualizar Vulnerabilidad';
+                    const submitButton = document.querySelector('#vulnerabilidadForm button[type="submit"]');
+                    if (submitButton) submitButton.textContent = '🚀 Crear/Actualizar Vulnerabilidad';
                     currentEditId = null;
                     cargarVulnerabilidades();
                 } else {
                     showAlert(result.error || 'Error en la operación', 'danger');
                 }
             } catch (error) {
-                console.error('Form submission error:', error);
+                console.error('Error al enviar el formulario:', error);
                 showAlert('Error en la operación', 'danger');
             }
         });
 
-        // Inicializar aplicación
+        async function loadSection(section) {
+            console.log('Cargando sección:', section, 'con token:', window.token ? 'presente' : 'ausente');
+            if (!await verifyToken()) {
+                console.log('Fallo en la verificación del token para:', section);
+                return;
+            }
+            const contentDiv = document.getElementById('dynamicContent');
+            if (!contentDiv) {
+                console.error('Div de contenido dinámico no encontrado');
+                showAlert('Error al cargar la sección. Recargue la página.', 'danger');
+                return;
+            }
+            contentDiv.classList.add('loading');
+            contentDiv.innerHTML = '<div class="loading">Cargando...</div>';
+            try {
+                const response = await fetch(`/${section}`, {
+                    headers: { 'Authorization': `Bearer ${window.token}` }
+                });
+                console.log('Respuesta de fetch para', section, ':', response.status);
+                if (response.ok) {
+                    const html = await response.text();
+                    console.log('HTML recibido para', section, ':', html.substring(0, 100));
+                    contentDiv.innerHTML = html;
+                    // Ejecutar scripts dinámicos sin redeclarar variables globales
+                    const scripts = contentDiv.getElementsByTagName('script');
+                    for (let script of scripts) {
+                        const newScript = document.createElement('script');
+                        if (script.src) {
+                            newScript.src = script.src;
+                        } else {
+                            newScript.textContent = script.textContent.replace(/let\s+token\s*=\s*localStorage\.getItem\('token'\)\s*\|\|\s*null;/g, '');
+                        }
+                        document.head.appendChild(newScript);
+                    }
+                    // Llamar a funciones de inicialización si existen
+                    if (window.initializeDashboard && section === 'dashboard') {
+                        initializeDashboard();
+                    }
+                    if (window.initializeReports && section === 'reports') {
+                        initializeReports();
+                    }
+                    contentDiv.style.display = 'block';
+                } else if (response.status === 401) {
+                    logout();
+                } else {
+                    contentDiv.innerHTML = `<div class="alert alert-danger">Error al cargar ${section}. Código: ${response.status}</div>`;
+                    contentDiv.style.display = 'block';
+                }
+            } catch (error) {
+                console.error('Error al cargar', section, ':', error);
+                contentDiv.innerHTML = '<div class="alert alert-danger">Error de conexión. Verifica el servidor.</div>';
+                contentDiv.style.display = 'block';
+            } finally {
+                contentDiv.classList.remove('loading');
+            }
+        }
+
         async function inicializarAplicacion() {
             if (!await verifyToken()) return;
             try {
+                await new Promise(resolve => setTimeout(resolve, 500));
                 await cargarDatosReferencia();
                 await cargarVulnerabilidades();
-                document.getElementById('fecha_identificacion').value = new Date().toISOString().split('T')[0];
-                const intervalId = setInterval(() => {
-                    if (token) cargarVulnerabilidades();
-                    else clearInterval(intervalId);
-                }, 30000);
+                const fechaInput = document.getElementById('fecha_identificacion');
+                if (fechaInput) fechaInput.value = new Date().toISOString().split('T')[0];
+                setInterval(() => { if (window.token) cargarVulnerabilidades(); }, 30000);
                 setInterval(checkServerStatus, 30000);
             } catch (error) {
-                console.error('Initialization error:', error);
+                console.error('Error de inicialización:', error);
                 showAlert('Error al inicializar la aplicación', 'danger');
             }
         }
 
-        // Event listeners para Enter en login
         ['loginEmail', 'loginPassword'].forEach(id => {
-            document.getElementById(id).addEventListener('keypress', (e) => e.key === 'Enter' && login());
+            const element = document.getElementById(id);
+            if (element) {
+                element.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') login();
+                });
+            }
         });
 
-        // Inicialización
         document.addEventListener('DOMContentLoaded', async () => {
-            console.log('Page loaded, checking server status');
             await checkServerStatus();
-            const storedToken = localStorage.getItem('token');
-            if (storedToken) {
-                token = storedToken;
-                console.log('Using stored token:', token.substring(0, 10) + '...');
+            if (window.token) {
                 document.getElementById('loginSection').classList.add('hidden');
                 document.getElementById('mainSection').classList.remove('hidden');
                 await inicializarAplicacion();

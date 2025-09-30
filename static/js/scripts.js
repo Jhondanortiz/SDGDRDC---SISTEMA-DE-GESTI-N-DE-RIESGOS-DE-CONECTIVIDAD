@@ -14,7 +14,7 @@ async function verifyAuthentication() {
 
     try {
         console.log('Verificando autenticación con token:', token.substring(0, 10) + '...');
-        const response = await fetch('/api/protocolos', {
+        const response = await fetch('/api/verify-token', {
             headers: { 'Authorization': `Bearer ${token}` }
         });
         if (!response.ok && response.status === 401) {
@@ -137,6 +137,46 @@ function refreshChart() {
     loadChart();
 }
 
+// Función para cargar Dashboard
+async function loadDashboard() {
+    if (!await verifyAuthentication()) return;
+
+    try {
+        const response = await fetch('/dashboard', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (!response.ok) {
+            throw new Error(`Error al cargar Dashboard: ${response.status}`);
+        }
+        const html = await response.text();
+        document.body.innerHTML = html;
+        console.log('Dashboard cargado exitosamente');
+    } catch (error) {
+        console.error('Error cargando Dashboard:', error);
+        alert('Error al cargar Dashboard. Verifique su sesión.');
+    }
+}
+
+// Función para cargar Reports
+async function loadReports() {
+    if (!await verifyAuthentication()) return;
+
+    try {
+        const response = await fetch('/reports', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (!response.ok) {
+            throw new Error(`Error al cargar Reports: ${response.status}`);
+        }
+        const html = await response.text();
+        document.body.innerHTML = html;
+        console.log('Reports cargado exitosamente');
+    } catch (error) {
+        console.error('Error cargando Reports:', error);
+        alert('Error al cargar Reports. Verifique su sesión.');
+    }
+}
+
 // Cargar gráfico al iniciar la página y manejar eventos
 document.addEventListener('DOMContentLoaded', async function() {
     console.log('Page loaded, starting chart load');
@@ -155,5 +195,5 @@ document.addEventListener('DOMContentLoaded', async function() {
 
 // Exportar funciones para uso en otros módulos (si es necesario)
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { loadChart, refreshChart, verifyAuthentication };
+    module.exports = { loadChart, refreshChart, verifyAuthentication, loadDashboard, loadReports };
 }

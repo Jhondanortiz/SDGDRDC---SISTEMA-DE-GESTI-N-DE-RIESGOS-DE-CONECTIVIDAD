@@ -1,12 +1,14 @@
 from flask import Flask, request, jsonify, render_template
 from flask_sqlalchemy import SQLAlchemy
 from flask_jwt_extended import JWTManager, jwt_required, get_jwt_identity, create_access_token
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from werkzeug.security import generate_password_hash, check_password_hash
 import os
 import logging
 from sqlalchemy import inspect
 from sqlalchemy.exc import IntegrityError
+from apscheduler.schedulers.background import BackgroundScheduler
+import shutil
 
 # Configurar logging
 logging.basicConfig(
@@ -16,11 +18,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-app = Flask(__name__)
+app = Flask(__name__, template_folder='templates', static_folder='static')
 
 # Configurar JWT
-app.config['JWT_SECRET_KEY'] = os.environ.get('JWT_SECRET_KEY', 'tu-clave-secreta-muy-segura-cambia-en-produccion-a-32-caracteres')
-app.config['JWT_ACCESS_TOKEN_EXPIRES'] = 24 * 60 * 60  # 24 horas de expiración
+app.config['JWT_SECRET_KEY'] = os.environ.get('JWT_SECRET_KEY', os.urandom(32).hex())  # Clave segura por defecto
+app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=24)
 app.config['JWT_IDENTITY_CLAIM'] = 'sub'
 jwt = JWTManager(app)
 
@@ -30,7 +32,7 @@ app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{os.path.join(basedir, "sdgd
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
-# Hacer que la función date esté disponible en los templates de Jinja2
+# Hacer que la función date esté disponible en los templates
 @app.context_processor
 def inject_date():
     return {'date': date, 'datetime': datetime}
@@ -38,61 +40,70 @@ def inject_date():
 # Manejadores de errores
 @app.errorhandler(422)
 def handle_unprocessable_entity(e):
-    logger.error(f"Error 422: {str(e)} - Detalles: {repr(e)}", exc_info=True)
-    return jsonify({"error": "Entidad No Procesable", "detalles": str(e), "mensaje": "Revisa los datos enviados o el token"}), 422
+    logger.error(f"Error 422: {str(e)}", exc_info=True)
+    return jsonify({"error": "Entidad No Procesable", "mensaje": "Revisa los datos enviados o el token"}), 422
 
 @app.errorhandler(401)
 def handle_unauthorized(e):
-    logger.error(f"Error 401: {str(e)} - Detalles: {repr(e)}", exc_info=True)
+    logger.error(f"Error 401: {str(e)}", exc_info=True)
     return jsonify({"error": "No autorizado", "mensaje": "Token JWT requerido o inválido, inicia sesión"}), 401
 
 @app.errorhandler(404)
 def handle_not_found(e):
-    logger.error(f"Error 404: {str(e)} - Detalles: {repr(e)}", exc_info=True)
+    logger.error(f"Error 404: {str(e)}", exc_info=True)
     return jsonify({"error": "Recurso no encontrado", "mensaje": "La ruta solicitada no existe"}), 404
 
 @app.errorhandler(500)
 def handle_internal_server_error(e):
-    logger.error(f"Error 500: {str(e)} - Detalles: {repr(e)}", exc_info=True)
+    logger.error(f"Error 500: {str(e)}", exc_info=True)
     return jsonify({"error": "Error interno del servidor", "mensaje": "Contacte al administrador, revisa los logs"}), 500
 
 # Modelos
 class Usuario(db.Model):
-    __tablename__ = 'Usuario'
+    __tablename__ = 'usuarios'
     id_usuario = db.Column(db.Integer, primary_key=True)
-    nombre = db.Column(db.Text, nullable=False)
-    email = db.Column(db.Text, nullable=False, unique=True)
-    contraseña = db.Column(db.Text, nullable=False)
-    rol = db.Column(db.Text, nullable=False)
+    nombre = db.Column(db.String(100), nullable=False)
+    email = db.Column(db.String(120), nullable=False, unique=True)
+    contraseña = db.Column(db.String(255), nullable=False)
+    rol = db.Column(db.String(50), nullable=False)
 
 class Protocolo(db.Model):
-    __tablename__ = 'Protocolo'
+    __tablename__ = 'protocolos'
     id_protocolo = db.Column(db.Integer, primary_key=True)
-    nombre = db.Column(db.Text, nullable=False, unique=True)
+    nombre = db.Column(db.String(50), nullable=False, unique=True)
     descripcion = db.Column(db.Text)
 
 class Criticidad(db.Model):
-    __tablename__ = 'Criticidad'
+    __tablename__ = 'criticidades'
     id_criticidad = db.Column(db.Integer, primary_key=True)
-    nivel = db.Column(db.Text, nullable=False, unique=True)
+    nivel = db.Column(db.String(50), nullable=False, unique=True)
     descripcion = db.Column(db.Text)
 
 class Estado(db.Model):
-    __tablename__ = 'Estado'
+    __tablename__ = 'estados'
     id_estado = db.Column(db.Integer, primary_key=True)
-    nombre = db.Column(db.Text, nullable=False, unique=True)
+    nombre = db.Column(db.String(50), nullable=False, unique=True)
     descripcion = db.Column(db.Text)
 
 class Vulnerabilidad(db.Model):
-    __tablename__ = 'Vulnerabilidad'
+    __tablename__ = 'vulnerabilidades'
     id_vulnerabilidad = db.Column(db.Integer, primary_key=True)
-    id_protocolo = db.Column(db.Integer, db.ForeignKey('Protocolo.id_protocolo'), nullable=False)
-    id_criticidad = db.Column(db.Integer, db.ForeignKey('Criticidad.id_criticidad'), nullable=False)
-    id_estado = db.Column(db.Integer, db.ForeignKey('Estado.id_estado'), nullable=False)
+    id_protocolo = db.Column(db.Integer, db.ForeignKey('protocolos.id_protocolo'), nullable=False)
+    id_criticidad = db.Column(db.Integer, db.ForeignKey('criticidades.id_criticidad'), nullable=False)
+    id_estado = db.Column(db.Integer, db.ForeignKey('estados.id_estado'), nullable=False)
     descripcion = db.Column(db.Text, nullable=False)
     fecha_identificacion = db.Column(db.Date, nullable=False)
-    responsable = db.Column(db.Text)
-    id_usuario_asignado = db.Column(db.Integer, db.ForeignKey('Usuario.id_usuario'))
+    responsable = db.Column(db.String(100))
+    id_usuario_asignado = db.Column(db.Integer, db.ForeignKey('usuarios.id_usuario'))
+
+class Seguimiento(db.Model):
+    __tablename__ = 'seguimientos'
+    id_seguimiento = db.Column(db.Integer, primary_key=True)
+    id_vulnerabilidad = db.Column(db.Integer, db.ForeignKey('vulnerabilidades.id_vulnerabilidad'), nullable=False)
+    accion = db.Column(db.String(100), nullable=False)
+    fecha_accion = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    id_usuario = db.Column(db.Integer, db.ForeignKey('usuarios.id_usuario'), nullable=False)
+    comentarios = db.Column(db.Text)
 
 def validate_vulnerabilidad_data(data):
     errors = []
@@ -100,9 +111,9 @@ def validate_vulnerabilidad_data(data):
     
     for field in required_fields:
         value = data.get(field)
-        if not value or str(value).strip() in ('', None):
+        if not value or str(value).strip() in ('', 'null', 'undefined'):
             errors.append(f"{field} es requerido")
-        elif field in ['id_protocolo', 'id_criticidad', 'id_estado', 'id_usuario_asignado'] and value != 'null':
+        elif field in ['id_protocolo', 'id_criticidad', 'id_estado']:
             try:
                 int_value = int(str(value).strip())
                 if int_value <= 0:
@@ -112,7 +123,7 @@ def validate_vulnerabilidad_data(data):
 
     if 'fecha_identificacion' in data:
         value = data.get('fecha_identificacion')
-        if not value or str(value).strip() in ('', None):
+        if not value or str(value).strip() in ('', 'null', 'undefined'):
             errors.append("fecha_identificacion es requerido")
         else:
             try:
@@ -120,12 +131,12 @@ def validate_vulnerabilidad_data(data):
                 if fecha > date.today():
                     errors.append("fecha_identificacion no puede ser futura")
             except (ValueError, TypeError):
-                errors.append("fecha_identificacion debe tener formato YYYY-MM-DD")
+                errors.append("fecha_identificacion debe ser YYYY-MM-DD")
 
     with app.app_context():
         for field, model in [('id_protocolo', Protocolo), ('id_criticidad', Criticidad), ('id_estado', Estado)]:
             value = data.get(field)
-            if value and str(value).strip() not in ('', None, 'null'):
+            if value and str(value).strip() not in ('', 'null', 'undefined'):
                 try:
                     int_value = int(str(value).strip())
                     if not db.session.get(model, int_value):
@@ -133,9 +144,9 @@ def validate_vulnerabilidad_data(data):
                 except (ValueError, TypeError):
                     errors.append(f"{field} debe ser un número válido")
 
-        if 'id_usuario_asignado' in data:
+        if 'id_usuario_asignado' in data and data['id_usuario_asignado']:
             value = data.get('id_usuario_asignado')
-            if value and str(value).strip() not in ('', None, 'null'):
+            if str(value).strip() not in ('', 'null', 'undefined'):
                 try:
                     int_value = int(str(value).strip())
                     if int_value and not db.session.get(Usuario, int_value):
@@ -149,29 +160,53 @@ def validate_vulnerabilidad_data(data):
 @app.route('/')
 def index():
     try:
+        logger.info("Accediendo a la página principal")
         return render_template('index.html')
     except Exception as e:
-        logger.error(f"Error al cargar el template index.html: {str(e)} - Detalles: {repr(e)}", exc_info=True)
-        return f'''
-        <h1>Error al cargar el template</h1>
-        <p>Error: {str(e)}</p>
-        <p>Verifica que el archivo 'index.html' esté en la carpeta 'templates'</p>
-        '''
+        logger.error(f"Error al cargar index.html: {str(e)}", exc_info=True)
+        return f"Error al cargar el template: {str(e)}", 500
+
+@app.route('/welcome', methods=['GET'])
+def welcome():
+    logger.info("Accediendo a la página de bienvenida")
+    return jsonify({
+        "message": "Bienvenido al Sistema SDGDRDC. Por favor, inicia sesión en /login con tus credenciales.",
+        "login_url": "/login"
+    }), 200
 
 @app.route('/dashboard')
+@jwt_required()
 def dashboard():
-    return render_template('dashboard.html')
+    logger.info("Accediendo a la página de dashboard")
+    try:
+        return render_template('dashboard.html')
+    except Exception as e:
+        logger.error(f"Error al cargar dashboard.html: {str(e)}", exc_info=True)
+        return jsonify({"error": "Error al cargar la página", "mensaje": str(e)}), 500
 
 @app.route('/reports')
+@jwt_required()
 def reports():
-    return render_template('reports.html')
+    logger.info("Accediendo a la página de reportes")
+    try:
+        return render_template('reports.html')
+    except Exception as e:
+        logger.error(f"Error al cargar reports.html: {str(e)}", exc_info=True)
+        return jsonify({"error": "Error al cargar la página", "mensaje": str(e)}), 500
 
 @app.route('/vulnerabilities')
+@jwt_required()
 def vulnerabilities_page():
-    return render_template('vulnerabilities.html')
+    logger.info("Accediendo a la página de vulnerabilidades")
+    try:
+        return render_template('vulnerabilities.html')
+    except Exception as e:
+        logger.error(f"Error al cargar vulnerabilities.html: {str(e)}", exc_info=True)
+        return jsonify({"error": "Error al cargar la página", "mensaje": str(e)}), 500
 
 @app.route('/debug')
 def debug():
+    logger.info("Accediendo a la página de debug")
     template_folder = app.template_folder
     static_folder = app.static_folder
     root_path = app.root_path
@@ -187,47 +222,30 @@ def debug():
     if static_exist:
         for root, dirs, files in os.walk(static_path):
             level = root.replace(static_path, '').count(os.sep)
-            indent = ' ' * 2 * level
+            indent = ' ' * 4 * level
             static_files.append(f"{indent}{os.path.basename(root)}/")
-            subindent = ' ' * 2 * (level + 1)
+            subindent = ' ' * 4 * (level + 1)
             for file in files:
                 static_files.append(f"{subindent}{file}")
     
-    return f'''
-    <h1>Información de Debug - Sistema SDGDRDC</h1>
-    <p><strong>Root Path:</strong> {root_path}</p>
-    <p><strong>Template Folder:</strong> {template_folder}</p>
-    <p><strong>Static Folder:</strong> {static_folder}</p>
-    <hr>
-    <h2>Estructura del Proyecto:</h2>
-    <p><strong>Templates Path:</strong> {templates_path}</p>
-    <p><strong>Templates Folder Exists:</strong> {templates_exist}</p>
-    <p><strong>Template Files:</strong> {template_files}</p>
-    <br>
-    <p><strong>Static Path:</strong> {static_path}</p>
-    <p><strong>Static Folder Exists:</strong> {static_exist}</p>
-    <p><strong>Static Files:</strong></p>
-    <pre>{"<br>".join(static_files) if static_files else "No files found"}</pre>
-    <hr>
-    <h2>Rutas Disponibles:</h2>
-    <ul>
-        <li><a href="/">/ - Página principal</a></li>
-        <li><a href="/dashboard">/dashboard - Dashboard</a></li>
-        <li><a href="/reports">/reports - Reportes</a></li>
-        <li><a href="/vulnerabilities">/vulnerabilities - Vulnerabilidades</a></li>
-        <li>/login - Login (POST)</li>
-        <li>/api/vulnerabilidades - API Vulnerabilidades (requiere JWT)</li>
-        <li>/api/protocolos - API Protocolos</li>
-        <li>/api/criticidades - API Criticidades</li>
-        <li>/api/estados - API Estados</li>
-        <li>/api/usuarios - API Usuarios</li>
-    </ul>
-    '''
+    return render_template('debug.html', 
+                          root_path=root_path, 
+                          template_folder=template_folder, 
+                          static_folder=static_folder,
+                          templates_path=templates_path,
+                          templates_exist=templates_exist,
+                          template_files=template_files,
+                          static_path=static_path,
+                          static_exist=static_exist,
+                          static_files=static_files)
+
+@app.route('/favicon.ico')
+def favicon():
+    return '', 204
 
 @app.route('/login', methods=['POST'])
 def login():
     logger.info("Solicitud de login recibida")
-    
     try:
         data = request.get_json()
         if not data:
@@ -243,7 +261,6 @@ def login():
         
         logger.debug(f"Intentando login para email: {email}")
         
-        # Buscar usuario por email usando una consulta explícita
         user = db.session.execute(db.select(Usuario).filter_by(email=email)).scalar_one_or_none()
         if not user:
             logger.error(f"Usuario no encontrado para email: {email}")
@@ -268,38 +285,28 @@ def login():
         return jsonify({'error': 'Error interno del servidor'}), 500
 
 @app.route('/api/vulnerabilidades', methods=['GET', 'POST'])
-@jwt_required(optional=True)
+@jwt_required()
 def vulnerabilidades():
     current_user_id = get_jwt_identity()
-    auth_header = request.headers.get('Authorization')
-    logger.info(f"Solicitud a /api/vulnerabilidades - Método: {request.method}, Token presente: {bool(auth_header)}")
-
-    if not current_user_id and auth_header:
-        logger.error("Token inválido o no autorizado en /api/vulnerabilidades")
-        return jsonify({'error': 'Autenticación requerida'}), 401
+    logger.info(f"Solicitud a /api/vulnerabilidades - Método: {request.method} - Usuario: {current_user_id}")
 
     if request.method == 'POST':
-        if not current_user_id:
-            logger.error("Acceso no autorizado a POST /api/vulnerabilidades")
-            return jsonify({'error': 'Autenticación requerida'}), 401
-        logger.info(f"Procesando POST para crear vulnerabilidad por usuario: {current_user_id}")
+        logger.info(f"Procesando POST para usuario: {current_user_id} - Datos recibidos: {request.get_json() or request.form.to_dict()}")
         try:
             data = request.get_json() or request.form.to_dict()
-            logger.debug(f"Datos recibidos: {data}")
-            
             errors = validate_vulnerabilidad_data(data)
             if errors:
-                logger.error(f"Errores de validación: {errors}")
+                logger.error(f"Validación fallida: {errors}")
                 return jsonify({'error': 'Validación fallida', 'details': errors}), 422
-            
+
             nueva_vulnerabilidad = Vulnerabilidad(
                 id_protocolo=int(data['id_protocolo']),
                 id_criticidad=int(data['id_criticidad']),
                 id_estado=int(data['id_estado']),
                 descripcion=data['descripcion'],
                 fecha_identificacion=datetime.strptime(data['fecha_identificacion'], '%Y-%m-%d').date(),
-                responsable=data.get('responsable', None),
-                id_usuario_asignado=int(data['id_usuario_asignado']) if data.get('id_usuario_asignado') and str(data['id_usuario_asignado']).strip() not in ('', 'null', 'undefined') else None
+                responsable=data.get('responsable'),
+                id_usuario_asignado=current_user_id if not data.get('id_usuario_asignado') else int(data.get('id_usuario_asignado'))
             )
             db.session.add(nueva_vulnerabilidad)
             db.session.flush()
@@ -307,257 +314,230 @@ def vulnerabilidades():
             db.session.commit()
             logger.info(f"Vulnerabilidad persistida con ID: {nueva_vulnerabilidad.id_vulnerabilidad}")
             return jsonify({'message': 'Vulnerabilidad creada', 'id': nueva_vulnerabilidad.id_vulnerabilidad}), 201
-        except ValueError as ve:
-            logger.error(f"Error de valor: {str(ve)} - Detalles: {repr(ve)}", exc_info=True)
+        except (ValueError, TypeError) as e:
             db.session.rollback()
-            return jsonify({'error': 'Datos inválidos: asegúrese de enviar valores numéricos correctos', 'details': str(ve)}), 422
-        except IntegrityError as ie:
-            logger.error(f"Error de integridad: {str(ie)} - Detalles: {repr(ie)}", exc_info=True)
+            logger.error(f"Error de valor: {str(e)}", exc_info=True)
+            return jsonify({'error': 'Datos inválidos', 'details': str(e)}), 422
+        except IntegrityError as e:
             db.session.rollback()
-            return jsonify({'error': 'Error de integridad en la base de datos', 'details': str(ie)}), 400
+            logger.error(f"Error de integridad: {str(e)}", exc_info=True)
+            return jsonify({'error': 'Error de integridad', 'details': str(e)}), 400
         except Exception as e:
-            logger.error(f"Error interno: {str(e)} - Detalles: {repr(e)}", exc_info=True)
             db.session.rollback()
-            return jsonify({'error': f'Error interno: {str(e)}', 'details': 'Revise los logs del servidor'}), 500
-    
+            logger.error(f"Error interno: {str(e)}", exc_info=True)
+            return jsonify({'error': 'Error interno', 'details': str(e)}), 500
+
     elif request.method == 'GET':
-        if not current_user_id:
-            logger.error("Acceso no autorizado a GET /api/vulnerabilidades")
-            return jsonify({'error': 'Autenticación requerida'}), 401
-        logger.info(f"Procesando GET para obtener vulnerabilidades por usuario: {current_user_id}")
+        logger.info(f"Procesando GET para usuario: {current_user_id}")
         try:
-            vulnerabilidades = db.session.query(
-                Vulnerabilidad,
-                Usuario.nombre.label('usuario_nombre'),
-                Protocolo.nombre.label('protocolo_nombre'),
-                Criticidad.nivel.label('criticidad_nombre'),
-                Estado.nombre.label('estado_nombre')
-            ).outerjoin(Usuario, Vulnerabilidad.id_usuario_asignado == Usuario.id_usuario)\
-             .join(Protocolo, Vulnerabilidad.id_protocolo == Protocolo.id_protocolo)\
-             .join(Criticidad, Vulnerabilidad.id_criticidad == Criticidad.id_criticidad)\
-             .join(Estado, Vulnerabilidad.id_estado == Estado.id_estado)\
-             .filter(Vulnerabilidad.id_usuario_asignado == current_user_id).all()
-            
+            vulnerabilidades = db.session.execute(
+                db.select(Vulnerabilidad, Usuario.nombre.label('usuario_nombre'), Protocolo.nombre.label('protocolo_nombre'),
+                         Criticidad.nivel.label('criticidad_nombre'), Estado.nombre.label('estado_nombre'))
+                .outerjoin(Usuario, Vulnerabilidad.id_usuario_asignado == Usuario.id_usuario)
+                .join(Protocolo)
+                .join(Criticidad)
+                .join(Estado)
+            ).all()
             resultado = [{
-                'id_vulnerabilidad': v.Vulnerabilidad.id_vulnerabilidad,
-                'protocolo_nombre': v.protocolo_nombre,
-                'criticidad_nombre': v.criticidad_nombre,
-                'estado_nombre': v.estado_nombre,
-                'descripcion': v.Vulnerabilidad.descripcion,
-                'fecha_identificacion': v.Vulnerabilidad.fecha_identificacion.strftime('%Y-%m-%d'),
-                'responsable': v.Vulnerabilidad.responsable,
-                'usuario_nombre': v.usuario_nombre or 'Sin asignar'
+                'id_vulnerabilidad': v[0].id_vulnerabilidad,
+                'protocolo_nombre': v[2],
+                'criticidad_nombre': v[3],
+                'estado_nombre': v[4],
+                'descripcion': v[0].descripcion,
+                'fecha_identificacion': v[0].fecha_identificacion.strftime('%Y-%m-%d'),
+                'responsable': v[0].responsable,
+                'usuario_nombre': v[1] or 'Sin asignar'
             } for v in vulnerabilidades]
-            
             logger.info(f"Devolviendo {len(resultado)} vulnerabilidades")
             return jsonify(resultado), 200
         except Exception as e:
-            logger.error(f"Error obteniendo vulnerabilidades: {str(e)} - Detalles: {repr(e)}", exc_info=True)
-            return jsonify({'error': f'Error interno: {str(e)}'}), 500
-    
-    return jsonify({'error': 'Método no permitido'}), 405
+            logger.error(f"Error obteniendo vulnerabilidades: {str(e)}", exc_info=True)
+            return jsonify({'error': 'Error interno', 'details': str(e)}), 500
 
 @app.route('/api/vulnerabilidades/<int:id>', methods=['GET', 'PUT', 'DELETE'])
-@jwt_required(optional=True)
+@jwt_required()
 def vulnerabilidad_id(id):
     current_user_id = get_jwt_identity()
-    auth_header = request.headers.get('Authorization')
-    logger.info(f"Solicitud a /api/vulnerabilidades/{id} - Método: {request.method}, Token presente: {bool(auth_header)}")
-    
+    logger.info(f"Solicitud a /api/vulnerabilidades/{id} - Método: {request.method} - Usuario: {current_user_id}")
+
     vulnerabilidad = db.session.get(Vulnerabilidad, id)
     if not vulnerabilidad:
-        logger.error(f"Vulnerabilidad {id} no encontrada")
-        return jsonify({'error': 'Recurso no encontrado', 'message': 'Vulnerabilidad no existe'}), 404
-    
-    if not current_user_id and auth_header:
-        logger.error(f"Token inválido o no autorizado en /api/vulnerabilidades/{id}")
-        return jsonify({'error': 'Autenticación requerida'}), 401
+        return jsonify({'error': 'Recurso no encontrado'}), 404
+
+    if vulnerabilidad.id_usuario_asignado != current_user_id:
+        return jsonify({'error': 'No autorizado'}), 403
 
     if request.method == 'GET':
-        if not current_user_id:
-            logger.error(f"Acceso no autorizado a GET /api/vulnerabilidades/{id}")
-            return jsonify({'error': 'Autenticación requerida'}), 401
         try:
-            v = db.session.query(
-                Vulnerabilidad,
-                Usuario.nombre.label('usuario_nombre'),
-                Protocolo.nombre.label('protocolo_nombre'),
-                Criticidad.nivel.label('criticidad_nombre'),
-                Estado.nombre.label('estado_nombre')
-            ).outerjoin(Usuario, Vulnerabilidad.id_usuario_asignado == Usuario.id_usuario)\
-             .join(Protocolo, Vulnerabilidad.id_protocolo == Protocolo.id_protocolo)\
-             .join(Criticidad, Vulnerabilidad.id_criticidad == Criticidad.id_criticidad)\
-             .join(Estado, Vulnerabilidad.id_estado == Estado.id_estado)\
-             .filter(Vulnerabilidad.id_vulnerabilidad == id).first()
-            
+            v = db.session.execute(
+                db.select(Vulnerabilidad, Usuario.nombre.label('usuario_nombre'), Protocolo.nombre.label('protocolo_nombre'),
+                         Criticidad.nivel.label('criticidad_nombre'), Estado.nombre.label('estado_nombre'))
+                .outerjoin(Usuario, Vulnerabilidad.id_usuario_asignado == Usuario.id_usuario)
+                .join(Protocolo)
+                .join(Criticidad)
+                .join(Estado)
+                .filter(Vulnerabilidad.id_vulnerabilidad == id)
+            ).first()
             if not v:
-                logger.error(f"Vulnerabilidad {id} no encontrada en consulta detallada")
-                return jsonify({'error': 'Recurso no encontrado', 'message': 'Vulnerabilidad no existe'}), 404
-            
+                return jsonify({'error': 'Recurso no encontrado'}), 404
             return jsonify({
-                'id_vulnerabilidad': v.Vulnerabilidad.id_vulnerabilidad,
-                'protocolo_nombre': v.protocolo_nombre,
-                'criticidad_nombre': v.criticidad_nombre,
-                'estado_nombre': v.estado_nombre,
-                'descripcion': v.Vulnerabilidad.descripcion,
-                'fecha_identificacion': v.Vulnerabilidad.fecha_identificacion.strftime('%Y-%m-%d'),
-                'responsable': v.Vulnerabilidad.responsable,
-                'usuario_nombre': v.usuario_nombre or 'Sin asignar'
+                'id_vulnerabilidad': v[0].id_vulnerabilidad,
+                'id_protocolo': v[0].id_protocolo,
+                'id_criticidad': v[0].id_criticidad,
+                'id_estado': v[0].id_estado,
+                'protocolo_nombre': v[2],
+                'criticidad_nombre': v[3],
+                'estado_nombre': v[4],
+                'descripcion': v[0].descripcion,
+                'fecha_identificacion': v[0].fecha_identificacion.strftime('%Y-%m-%d'),
+                'responsable': v[0].responsable,
+                'usuario_nombre': v[1] or 'Sin asignar'
             }), 200
         except Exception as e:
-            logger.error(f"Error obteniendo vulnerabilidad {id}: {str(e)} - Detalles: {repr(e)}", exc_info=True)
-            return jsonify({'error': f'Error interno: {str(e)}'}), 500
-    
+            logger.error(f"Error obteniendo vulnerabilidad {id}: {str(e)}", exc_info=True)
+            return jsonify({'error': 'Error interno', 'details': str(e)}), 500
+
     elif request.method == 'PUT':
-        if not current_user_id:
-            logger.error(f"Acceso no autorizado a PUT /api/vulnerabilidades/{id}")
-            return jsonify({'error': 'Autenticación requerida'}), 401
         try:
             data = request.get_json() or request.form.to_dict()
-            logger.debug(f"Datos para actualizar: {data}")
-            
+            logger.debug(f"Datos recibidos para PUT: {data}")
             errors = validate_vulnerabilidad_data(data)
             if errors:
-                logger.error(f"Errores de validación: {errors}")
+                logger.error(f"Validación fallida: {errors}")
                 return jsonify({'error': 'Validación fallida', 'details': errors}), 422
-            
+
+            nuevo_estado = data.get('id_estado')
+            estado_actual = vulnerabilidad.id_estado
+            fecha_ident = vulnerabilidad.fecha_identificacion
+
+            # Validar transiciones
+            if nuevo_estado:
+                estado = db.session.get(Estado, int(nuevo_estado))
+                if not estado:
+                    return jsonify({'error': 'Estado no válido'}), 400
+                estado_nombres = {1: 'Identificada', 2: 'En análisis', 3: 'En remediación', 4: 'Resuelta', 5: 'Cerrada'}
+                estado_actual_nombre = estado_nombres.get(estado_actual, 'Desconocido')
+                if estado.nombre == 'En análisis' and estado_actual_nombre != 'Identificada':
+                    return jsonify({'error': 'Solo de Identificada a En análisis'}), 400
+                elif estado.nombre == 'En remediación' and estado_actual_nombre != 'En análisis':
+                    return jsonify({'error': 'Solo de En análisis a En remediación'}), 400
+                elif estado.nombre == 'Resuelta' and estado_actual_nombre != 'En remediacion':
+                    return jsonify({'error': 'Solo de En remediación a Resuelta'}), 400
+                elif estado.nombre == 'Cerrada' and estado_actual_nombre != 'Resuelta':
+                    return jsonify({'error': 'Solo de Resuelta a Cerrada'}), 400
+
             vulnerabilidad.id_protocolo = int(data.get('id_protocolo', vulnerabilidad.id_protocolo))
             vulnerabilidad.id_criticidad = int(data.get('id_criticidad', vulnerabilidad.id_criticidad))
-            vulnerabilidad.id_estado = int(data.get('id_estado', vulnerabilidad.id_estado))
+            vulnerabilidad.id_estado = int(nuevo_estado) if nuevo_estado else vulnerabilidad.id_estado
             vulnerabilidad.descripcion = data.get('descripcion', vulnerabilidad.descripcion)
             if 'fecha_identificacion' in data:
                 vulnerabilidad.fecha_identificacion = datetime.strptime(data['fecha_identificacion'], '%Y-%m-%d').date()
             vulnerabilidad.responsable = data.get('responsable', vulnerabilidad.responsable)
-            if 'id_usuario_asignado' in data and data['id_usuario_asignado'] and str(data['id_usuario_asignado']).strip() not in ('', 'null', 'undefined'):
-                vulnerabilidad.id_usuario_asignado = int(data['id_usuario_asignado'])
-            elif 'id_usuario_asignado' in data and str(data['id_usuario_asignado']).strip() in ('', 'null', 'undefined'):
-                vulnerabilidad.id_usuario_asignado = None
-            
+            vulnerabilidad.id_usuario_asignado = int(data.get('id_usuario_asignado')) if data.get('id_usuario_asignado') else current_user_id
+
+            if nuevo_estado and int(nuevo_estado) != estado_actual:
+                seguimiento = Seguimiento(
+                    id_vulnerabilidad=id,
+                    accion=f"Cambio a {estado.nombre}",
+                    id_usuario=current_user_id,
+                    comentarios=data.get('comentarios')
+                )
+                db.session.add(seguimiento)
             db.session.commit()
-            logger.info(f"Vulnerabilidad {id} actualizada por usuario: {current_user_id}")
             return jsonify({'message': 'Vulnerabilidad actualizada', 'id': vulnerabilidad.id_vulnerabilidad}), 200
-        except ValueError as ve:
-            logger.error(f"Error de valor: {str(ve)} - Detalles: {repr(ve)}", exc_info=True)
+        except (ValueError, TypeError) as e:
             db.session.rollback()
-            return jsonify({'error': 'Datos inválidos: asegúrese de enviar valores numéricos correctos', 'details': str(ve)}), 422
-        except IntegrityError as ie:
-            logger.error(f"Error de integridad: {str(ie)} - Detalles: {repr(ie)}", exc_info=True)
+            logger.error(f"Error de valor: {str(e)}", exc_info=True)
+            return jsonify({'error': 'Datos inválidos', 'details': str(e)}), 422
+        except IntegrityError as e:
             db.session.rollback()
-            return jsonify({'error': 'Error de integridad en la base de datos', 'details': str(ie)}), 400
+            logger.error(f"Error de integridad: {str(e)}", exc_info=True)
+            return jsonify({'error': 'Error de integridad', 'details': str(e)}), 400
         except Exception as e:
-            logger.error(f"Error actualizando vulnerabilidad {id}: {str(e)} - Detalles: {repr(e)}", exc_info=True)
             db.session.rollback()
-            return jsonify({'error': f'Error interno: {str(e)}', 'details': 'Revise los logs del servidor'}), 500
-    
+            logger.error(f"Error interno: {str(e)}", exc_info=True)
+            return jsonify({'error': 'Error interno', 'details': str(e)}), 500
+
     elif request.method == 'DELETE':
-        if not current_user_id:
-            logger.error(f"Acceso no autorizado a DELETE /api/vulnerabilidades/{id}")
-            return jsonify({'error': 'Autenticación requerida'}), 401
         try:
             db.session.delete(vulnerabilidad)
             db.session.commit()
-            logger.info(f"Vulnerabilidad {id} eliminada por usuario: {current_user_id}")
             return jsonify({'message': 'Vulnerabilidad eliminada'}), 200
         except Exception as e:
-            logger.error(f"Error eliminando vulnerabilidad {id}: {str(e)} - Detalles: {repr(e)}", exc_info=True)
             db.session.rollback()
-            return jsonify({'error': f'Error interno: {str(e)}', 'details': 'Revise los logs del servidor'}), 500
-    
-    return jsonify({'error': 'Método no permitido'}), 405
+            logger.error(f"Error eliminando: {str(e)}", exc_info=True)
+            return jsonify({'error': 'Error interno', 'details': str(e)}), 500
 
 @app.route('/api/protocolos', methods=['GET'])
 def get_protocolos():
+    logger.info("Solicitud a /api/protocolos")
     protocolos = db.session.execute(db.select(Protocolo)).scalars().all()
-    return jsonify([{
-        'id_protocolo': p.id_protocolo,
-        'nombre': p.nombre,
-        'descripcion': p.descripcion
-    } for p in protocolos])
+    return jsonify([{'id_protocolo': p.id_protocolo, 'nombre': p.nombre, 'descripcion': p.descripcion} for p in protocolos])
 
 @app.route('/api/criticidades', methods=['GET'])
 def get_criticidades():
+    logger.info("Solicitud a /api/criticidades")
     criticidades = db.session.execute(db.select(Criticidad)).scalars().all()
-    return jsonify([{
-        'id_criticidad': c.id_criticidad,
-        'nivel': c.nivel,
-        'descripcion': c.descripcion
-    } for c in criticidades])
+    return jsonify([{'id_criticidad': c.id_criticidad, 'nivel': c.nivel, 'descripcion': c.descripcion} for c in criticidades])
 
 @app.route('/api/estados', methods=['GET'])
 def get_estados():
+    logger.info("Solicitud a /api/estados")
     estados = db.session.execute(db.select(Estado)).scalars().all()
-    return jsonify([{
-        'id_estado': e.id_estado,
-        'nombre': e.nombre,
-        'descripcion': e.descripcion
-    } for e in estados])
+    return jsonify([{'id_estado': e.id_estado, 'nombre': e.nombre, 'descripcion': e.descripcion} for e in estados])
 
 @app.route('/api/usuarios', methods=['GET'])
-@jwt_required(optional=True)
+@jwt_required()
 def get_usuarios():
     current_user_id = get_jwt_identity()
-    auth_header = request.headers.get('Authorization')
-    logger.info(f"Solicitud a /api/usuarios - Token presente: {bool(auth_header)}")
-
-    if not current_user_id and auth_header:
-        logger.error("Acceso no autorizado a GET /api/usuarios")
-        return jsonify({'error': 'Autenticación requerida'}), 401
-    
     logger.info(f"Usuario autenticado consultando usuarios: {current_user_id}")
-    try:
-        usuarios = db.session.execute(db.select(Usuario)).scalars().all()
-        resultado = [{
-            'id_usuario': u.id_usuario,
-            'nombre': u.nombre,
-            'email': u.email,
-            'rol': u.rol
-        } for u in usuarios]
-        logger.info(f"Devolviendo {len(resultado)} usuarios")
-        return jsonify(resultado), 200
-    except Exception as e:
-        logger.error(f"Error obteniendo usuarios: {str(e)} - Detalles: {repr(e)}", exc_info=True)
-        return jsonify({'error': f'Error interno: {str(e)}'}), 500
+    usuarios = db.session.execute(db.select(Usuario)).scalars().all()
+    resultado = [{'id_usuario': u.id_usuario, 'nombre': u.nombre, 'email': u.email, 'rol': u.rol} for u in usuarios]
+    logger.info(f"Devolviendo {len(resultado)} usuarios")
+    return jsonify(resultado), 200
 
 @app.route('/api/verify-token', methods=['GET'])
 @jwt_required(optional=True)
 def verify_token():
     current_user_id = get_jwt_identity()
-    auth_header = request.headers.get('Authorization')
-    logger.info(f"Solicitud a /api/verify-token - Token presente: {bool(auth_header)}")
+    logger.info(f"Verificando token - Usuario: {current_user_id or 'No autenticado'}")
+    if not current_user_id:
+        return jsonify({'valid': False, 'message': 'No autenticado, usa /login para obtener un token'}), 401
+    user = db.session.get(Usuario, int(current_user_id))
+    if user:
+        return jsonify({'valid': True, 'user_id': current_user_id, 'nombre': user.nombre, 'email': user.email, 'rol': user.rol}), 200
+    return jsonify({'valid': False, 'message': 'Usuario no encontrado'}), 404
 
-    if not current_user_id and auth_header:
-        logger.error("Token inválido o no autorizado en /api/verify-token")
-        return jsonify({'error': 'Autenticación requerida', 'message': 'No hay token válido'}), 401
+def backup_db():
+    backup_dir = os.path.join(basedir, 'backup')
+    os.makedirs(backup_dir, exist_ok=True)
+    backup_path = os.path.join(backup_dir, f'sdgdrdc_{datetime.now().strftime("%Y%m%d_%H%M%S")}.db')
+    try:
+        shutil.copy(os.path.join(basedir, 'sdgdrdc.db'), backup_path)
+        logger.info(f"Backup realizado en {backup_path}")
+    except Exception as e:
+        logger.error(f"Error en backup: {str(e)}")
 
-    if current_user_id:
-        user = db.session.get(Usuario, int(current_user_id))
-        if user:
-            return jsonify({
-                'valid': True,
-                'user_id': current_user_id,
-                'nombre': user.nombre,
-                'email': user.email,
-                'rol': user.rol,
-                'message': 'Token válido'
-            }), 200
-        else:
-            return jsonify({'valid': False, 'message': 'Usuario no encontrado'}), 404
-    return jsonify({'valid': False, 'message': 'No autenticado'}), 401
+def check_cerrada():
+    vulnerabilidades = db.session.query(Vulnerabilidad).filter_by(id_estado=4).all()  # Resuelta
+    for v in vulnerabilidades:
+        ultimo_seguimiento = db.session.query(Seguimiento).filter_by(id_vulnerabilidad=v.id_vulnerabilidad).order_by(Seguimiento.fecha_accion.desc()).first()
+        if ultimo_seguimiento and (datetime.utcnow() - ultimo_seguimiento.fecha_accion).days >= 7:
+            v.id_estado = 5  # Cerrada
+            db.session.commit()
+            logger.info(f"Vulnerabilidad {v.id_vulnerabilidad} cerrada automáticamente")
 
 if __name__ == '__main__':
     with app.app_context():
         inspector = inspect(db.engine)
-        
-        # Verificar si la base de datos existe y tiene todas las tablas necesarias
         db_exists = os.path.exists(os.path.join(basedir, 'sdgdrdc.db'))
         tables = inspector.get_table_names()
-        required_tables = ['Usuario', 'Protocolo', 'Criticidad', 'Estado', 'Vulnerabilidad']
-        
+        required_tables = ['usuarios', 'protocolos', 'criticidades', 'estados', 'vulnerabilidades', 'seguimientos']
+
         if not db_exists or not all(table in tables for table in required_tables):
             logger.info("Base de datos incompleta o no encontrada, creando...")
             db.create_all()
-            logger.info("Base de datos creada")
-            if not db.session.execute(db.select(Usuario)).first():
+            if not db.session.query(Usuario).first():
                 logger.info("Inicializando datos por defecto")
                 try:
                     db.session.add(Usuario(nombre='Admin', email='admin@uniminuto.edu', contraseña=generate_password_hash('admin123'), rol='admin'))
@@ -576,13 +556,13 @@ if __name__ == '__main__':
                              Estado(nombre='Cerrada', descripcion='Finalizada')]
                     db.session.bulk_save_objects(protocolos + criticidades + estados)
                     db.session.commit()
-                    logger.info("Datos por defecto inicializados exitosamente")
-                except IntegrityError as ie:
-                    logger.error(f"Error de integridad inicializando datos: {str(ie)} - Detalles: {repr(ie)}", exc_info=True)
+                    logger.info("Datos por defecto inicializados")
+                except IntegrityError as e:
                     db.session.rollback()
+                    logger.error(f"Error de integridad: {str(e)}")
                 except Exception as e:
-                    logger.error(f"Error inicializando datos: {str(e)} - Detalles: {repr(e)}", exc_info=True)
                     db.session.rollback()
+                    logger.error(f"Error inicializando: {str(e)}")
         else:
             logger.info("Base de datos existente detectada, no se reiniciarán los datos")
             # Asegurarse de que el usuario admin existe
@@ -591,40 +571,11 @@ if __name__ == '__main__':
                 logger.info("Usuario admin no encontrado, creándolo...")
                 db.session.add(Usuario(nombre='Admin', email='admin@uniminuto.edu', contraseña=generate_password_hash('admin123'), rol='admin'))
                 db.session.commit()
-                logger.info("Usuario admin creado exitosamente")
+                logger.info("Usuario admin creado")
 
-    print("=" * 60)
-    print("🚀 SISTEMA DE GESTIÓN DE RIESGOS - SDGDRDC")
-    print("=" * 60)
-    print("✅ CORRECCIONES APLICADAS:")
-    print("   • Login acepta 'password' y 'contraseña'")
-    print("   • JWT identity como string simple")
-    print("   • Manejo de errores mejorado con excepciones específicas")
-    print("   • Clave JWT configurable vía entorno")
-    print("   • Persistencia en base de datos asegurada con commit/rollback y flush")
-    print("   • Corrección de has_table con inspect()")
-    print("   • Logging con trazas completas para depuración")
-    print("   • Validación robusta contra valores 'undefined', 'null'")
-    print("   • Tokens con expiración de 24 horas")
-    print("   • Autenticación JWT opcional en endpoints protegidos")
-    print("   • Corrección de LegacyAPIWarning usando db.session.get()")
-    print("   • Optimización de consultas con db.session.execute()")
-    print("=" * 60)
-    print("🌐 URLs disponibles:")
-    print("   http://127.0.0.1:5000/               → Página principal")
-    print("   http://127.0.0.1:5000/dashboard      → Dashboard")
-    print("   http://127.0.0.1:5000/reports        → Reportes")
-    print("   http://127.0.0.1:5000/vulnerabilities → Vulnerabilidades")
-    print("   http://127.0.0.1:5000/debug          → Información de debug")
-    print("=" * 60)
-    print("📊 Credenciales por defecto:")
-    print("   Email: admin@uniminuto.edu")
-    print("   Contraseña: admin123")
-    print("=" * 60)
-    print("🔧 PARA USAR LA API:")
-    print("   1. POST /login con: {\"email\": \"admin@uniminuto.edu\", \"password\": \"admin123\"}")
-    print("   2. Usar token en header: Authorization: Bearer TOKEN")
-    print("   3. Verifique los logs si hay errores de validación o persistencia")
-    print("=" * 60)
-    
-    app.run(debug=True)
+    scheduler = BackgroundScheduler()
+    scheduler.add_job(backup_db, 'cron', hour=0, minute=0)
+    scheduler.add_job(check_cerrada, 'interval', hours=24)
+    scheduler.start()
+
+    app.run(debug=True, host='0.0.0.0', port=5000)

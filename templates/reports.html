@@ -7,60 +7,76 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
 </head>
 <body>
-    <div class="container">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-            <h1>📋 SDGDRDC - Reportes de Vulnerabilidades</h1>
-            <button onclick="window.location.href='/'" class="btn btn-small btn-warning">🔙 Volver</button>
-        </div>
-        
-        <div id="alertContainer"></div>
-        
-        <div id="reportContainer">
-            <div class="loading" id="loading">Cargando reportes...</div>
-            <table id="reportTable" style="display: none;">
-                <thead>
-                    <tr>
-                        <th>ID</th>
-                        <th>Protocolo</th>
-                        <th>Criticidad</th>
-                        <th>Estado</th>
-                        <th>Descripción</th>
-                        <th>Fecha de Identificación</th>
-                        <th>Responsable</th>
-                        <th>Usuario Asignado</th>
-                    </tr>
-                </thead>
-                <tbody id="reportBody"></tbody>
-            </table>
-            <button id="generateReportBtn" class="btn btn-small btn-warning" onclick="exportToCSV()">📥 Exportar a CSV</button>
-        </div>
-    </div>
+    <header>
+        <h1 class="logo">📋 SDGDRDC - Reportes</h1>
+    </header>
+    <main>
+        <section class="container" aria-live="polite">
+            <div class="header-actions">
+                <button onclick="window.location.href='/'" class="btn btn-small btn-warning" aria-label="Volver a la página principal">🔙 Volver</button>
+            </div>
+            
+            <div id="alertContainer" role="alert"></div>
+            
+            <section class="report-section" id="reportContainer">
+                <div class="loading" id="loading" aria-live="polite">Cargando reportes...</div>
+                <table id="reportTable" class="table" style="display: none;">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Protocolo</th>
+                            <th>Criticidad</th>
+                            <th>Estado</th>
+                            <th>Descripción</th>
+                            <th>Fecha de Identificación</th>
+                            <th>Responsable</th>
+                            <th>Usuario Asignado</th>
+                        </tr>
+                    </thead>
+                    <tbody id="reportBody"></tbody>
+                </table>
+                <button id="generateReportBtn" class="btn btn-small btn-warning" onclick="exportToCSV()" aria-label="Exportar a CSV">📥 Exportar a CSV</button>
+            </section>
+        </section>
+    </main>
 
     <script>
-        // Variables globales
-        let token = localStorage.getItem('token') || null;
+        let vulnerabilitiesData = [];
 
         // Función para verificar autenticación
         async function checkAuth() {
-            if (!token) {
+            console.log('Checking authentication at', new Date().toLocaleString());
+            if (!window.token) {
                 console.log('No token found, redirecting to login at', new Date().toLocaleString());
-                alert('Por favor, inicie sesión primero.');
-                window.location.href = '/';
+                showAlert('Por favor, inicie sesión primero.', 'danger');
+                setTimeout(() => window.location.href = '/', 2000);
                 return false;
             }
             try {
                 const response = await fetch('/api/verify-token', {
-                    headers: { 'Authorization': `Bearer ${token}` }
+                    headers: { 'Authorization': `Bearer ${window.token}` }
                 });
-                if (!response.ok && response.status === 401) {
+                console.log('Auth check response:', response.status, 'at', new Date().toLocaleString());
+                if (response.status === 401) {
                     console.log('Token invalid, clearing and redirecting at', new Date().toLocaleString());
+                    showAlert('Sesión expirada, redirigiendo al login.', 'danger');
                     localStorage.removeItem('token');
-                    window.location.href = '/';
+                    setTimeout(() => window.location.href = '/', 2000);
+                    return false;
+                }
+                const data = await response.json();
+                if (!data.valid) {
+                    console.log('Token validation failed, redirecting at', new Date().toLocaleString());
+                    showAlert('Sesión inválida, redirigiendo al login.', 'danger');
+                    localStorage.removeItem('token');
+                    setTimeout(() => window.location.href = '/', 2000);
                     return false;
                 }
                 return true;
             } catch (error) {
                 console.error('Error verifying token:', error, 'at', new Date().toLocaleString());
+                showAlert('Error al verificar la sesión. Redirigiendo.', 'danger');
+                setTimeout(() => window.location.href = '/', 2000);
                 return false;
             }
         }
@@ -69,14 +85,14 @@
         function showAlert(message, type = 'success') {
             const alertContainer = document.getElementById('alertContainer');
             if (alertContainer) {
-                const alertClass = type === 'success' ? 'alert-success' : 'alert-danger';
-                alertContainer.innerHTML = `<div class="alert ${alertClass}">${message}</div>`;
+                alertContainer.innerHTML = `<div class="alert alert-${type}">${message}</div>`;
                 setTimeout(() => alertContainer.innerHTML = '', 5000);
             }
         }
 
         // Función para cargar reportes
         async function loadReports() {
+            console.log('Loading reports at', new Date().toLocaleString());
             const loading = document.getElementById('loading');
             const table = document.getElementById('reportTable');
             const tbody = document.getElementById('reportBody');
@@ -94,39 +110,33 @@
             document.getElementById('reportContainer').style.opacity = '0.5';
 
             try {
-                console.log('Fetching vulnerabilities with token:', token.substring(0, 10) + '... at', new Date().toLocaleString());
                 const response = await fetch('/api/vulnerabilidades', {
-                    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
+                    headers: { 'Authorization': `Bearer ${window.token}` }
                 });
-                console.log('API response status:', response.status, 'at', new Date().toLocaleString());
-                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-                const vulnerabilities = await response.json();
-                console.log('Vulnerabilities data:', JSON.stringify(vulnerabilities), 'at', new Date().toLocaleString());
+                console.log('Reports fetch response:', response.status, 'at', new Date().toLocaleString());
+                if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
+                vulnerabilitiesData = await response.json();
 
-                if (!Array.isArray(vulnerabilities)) {
-                    throw new Error('Datos de vulnerabilidades no son un array válido');
+                if (!Array.isArray(vulnerabilitiesData) || vulnerabilitiesData.length === 0) {
+                    throw new Error('No se encontraron datos de vulnerabilidades válidos');
                 }
 
                 tbody.innerHTML = '';
 
-                if (vulnerabilities.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 20px;">No hay vulnerabilidades para reportar</td></tr>';
-                } else {
-                    vulnerabilities.forEach(vuln => {
-                        const row = document.createElement('tr');
-                        row.innerHTML = `
-                            <td>${vuln.id_vulnerabilidad || 'N/A'}</td>
-                            <td>${vuln.protocolo_nombre || vuln.protocolo || 'Desconocido'}</td>
-                            <td>${vuln.criticidad_nombre || vuln.criticidad || 'Sin asignar'}</td>
-                            <td>${vuln.estado_nombre || vuln.estado || 'Sin asignar'}</td>
-                            <td title="${vuln.descripcion || ''}">${(vuln.descripcion || '').substring(0, 50)}${(vuln.descripcion || '').length > 50 ? '...' : ''}</td>
-                            <td>${vuln.fecha_identificacion || 'N/A'}</td>
-                            <td>${vuln.responsable || 'Sin asignar'}</td>
-                            <td>${vuln.usuario_nombre || vuln.usuario || 'Sin asignar'}</td>
-                        `;
-                        tbody.appendChild(row);
-                    });
-                }
+                vulnerabilitiesData.forEach(vuln => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${vuln.id_vulnerabilidad || 'N/A'}</td>
+                        <td>${vuln.protocolo_nombre || 'Desconocido'}</td>
+                        <td>${vuln.criticidad_nombre || 'Sin asignar'}</td>
+                        <td>${vuln.estado_nombre || 'Sin asignar'}</td>
+                        <td title="${vuln.descripcion || ''}">${(vuln.descripcion || '').substring(0, 50)}${(vuln.descripcion || '').length > 50 ? '...' : ''}</td>
+                        <td>${vuln.fecha_identificacion || 'N/A'}</td>
+                        <td>${vuln.responsable || 'Sin asignar'}</td>
+                        <td>${vuln.usuario_nombre || 'Sin asignar'}</td>
+                    `;
+                    tbody.appendChild(row);
+                });
 
                 loading.style.display = 'none';
                 table.style.display = 'table';
@@ -135,70 +145,69 @@
                 console.error('Error loading reports:', error, 'at', new Date().toLocaleString());
                 loading.style.display = 'none';
                 document.getElementById('reportContainer').style.opacity = '1';
+                tbody.innerHTML = '<tr><td colspan="8">Error al cargar los reportes. Intente de nuevo.</td></tr>';
                 if (error.message.includes('401')) {
                     showAlert('Sesión expirada, redirigiendo al login.', 'danger');
                     localStorage.removeItem('token');
                     setTimeout(() => window.location.href = '/', 2000);
-                } else if (error.message.includes('422')) {
-                    showAlert('Error en los datos de vulnerabilidades. Contacte al administrador.', 'danger');
-                } else if (error.message.includes('404') || error.message.includes('500')) {
-                    showAlert('Error en el servidor. Contacte al administrador.', 'danger');
                 } else {
-                    showAlert('Error inesperado al cargar los reportes.', 'danger');
+                    showAlert('Error al cargar los reportes. Intente de nuevo.', 'danger');
                 }
             }
         }
 
         // Función para exportar a CSV
         function exportToCSV() {
-            const table = document.getElementById('reportTable');
-            if (!table || table.style.display !== 'table') {
-                showAlert('Genere el reporte primero o verifique los datos.', 'danger');
+            console.log('Exporting to CSV at', new Date().toLocaleString(), 'with data:', vulnerabilitiesData);
+            if (!vulnerabilitiesData || vulnerabilitiesData.length === 0) {
+                showAlert('No hay datos para exportar.', 'danger');
                 return;
             }
 
-            fetch('/api/vulnerabilidades', {
-                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
-            })
-            .then(response => {
-                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-                return response.json();
-            })
-            .then(vulnerabilities => {
-                let csv = 'ID,Protocolo,Criticidad,Estado,Descripción,Fecha de Identificación,Responsable,Usuario Asignado\n';
-                vulnerabilities.forEach(v => {
-                    csv += [
-                        v.id_vulnerabilidad || '',
-                        v.protocolo_nombre || v.protocolo || '',
-                        v.criticidad_nombre || v.criticidad || '',
-                        v.estado_nombre || v.estado || '',
-                        `"${(v.descripcion || '').replace(/"/g, '""').replace(/,/g, '')}"`,
-                        v.fecha_identificacion || '',
-                        v.responsable || '',
-                        v.usuario_nombre || v.usuario || ''
-                    ].join(',') + '\n';
-                });
-                const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-                const url = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `vulnerabilities_report_${new Date().toISOString().split('T')[0]}.csv`;
-                a.click();
-                window.URL.revokeObjectURL(url);
-                showAlert('Reporte exportado exitosamente', 'success');
-            })
-            .catch(error => {
-                console.error('Error exporting CSV:', error, 'at', new Date().toLocaleString());
-                showAlert('Error al exportar el reporte. Verifique su conexión.', 'danger');
+            let csv = 'ID,Protocolo,Criticidad,Estado,Descripción,Fecha de Identificación,Responsable,Usuario Asignado\n';
+            vulnerabilitiesData.forEach(v => {
+                csv += [
+                    v.id_vulnerabilidad || '',
+                    v.protocolo_nombre || '',
+                    v.criticidad_nombre || '',
+                    v.estado_nombre || '',
+                    `"${(v.descripcion || '').replace(/"/g, '""')}"`, // Escapar comillas dobles
+                    v.fecha_identificacion || '',
+                    v.responsable || '',
+                    v.usuario_nombre || ''
+                ].join(',').replace(/\n/g, ' ') + '\n'; // Reemplazar saltos de línea
             });
+
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `vulnerabilities_report_${new Date().toISOString().split('T')[0]}.csv`;
+            document.body.appendChild(a); // Añadir al DOM para compatibilidad
+            a.click();
+            document.body.removeChild(a); // Limpiar después de la descarga
+            window.URL.revokeObjectURL(url);
+            showAlert('Reporte exportado exitosamente.', 'success');
         }
 
-        // Cargar reportes al iniciar y refrescar periódicamente
-        document.addEventListener('DOMContentLoaded', () => {
-            console.log('Reports page loaded, starting report load at', new Date().toLocaleString());
+        // Inicializar cuando se cargue dinámicamente
+        function initializeReports() {
+            console.log('Initializing reports at', new Date().toLocaleString());
             loadReports();
-            setInterval(loadReports, 30000); // Refresca cada 30 segundos
-        });
+            setInterval(loadReports, 60000); // Refresca cada 60 segundos
+        }
+
+        // Ejecutar inicialización si se carga directamente o dinámicamente
+        if (window.self === window.top) {
+            initializeReports();
+        } else {
+            const checkReady = setInterval(() => {
+                if (document.getElementById('loading') && document.getElementById('reportTable') && document.getElementById('reportBody')) {
+                    clearInterval(checkReady);
+                    initializeReports();
+                }
+            }, 100);
+        }
     </script>
 </body>
 </html>
